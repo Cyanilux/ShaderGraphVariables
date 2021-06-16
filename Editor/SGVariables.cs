@@ -27,25 +27,37 @@ Usage :
 		- You can now use the output of that node as you would with anything else.
 
 Known Issues :
-	- Nodes can still be connected to the input port on the 'Get Variable' node (hidden behind variable name)
-		Currently I force-remove these inputs and reconnect to variable if one exists to get around this
+	- If a node uses a DynamicVector/DynamicValue slot (Most math nodes) it will default to Vector4.
+		If you want Float, pass the value through the Float node before connecting!
+		
+		(I tried to fix this but it introduced a possibly worse issue, where if the dynamic port is
+		already connected and changes type, it doesn't update the Register Variable node.
+		Unsure if there's a callback to handle this, so not fixing for now. Use the Float node)
+
 	- If a 'Get Variable' node is connected to the vertex stage and then a name is entered, it can cause shader errors
-		(e.g. cannot map expression to vs_5_0 instruction set) if fragment-only nodes are used by the variable
+		if fragment-only nodes are used by the variable (e.g. cannot map expression to vs_5_0 instruction set)
 
 */
 
 [InitializeOnLoad]
 public class SGVariables {
 
-	// Settings --------------------------------------------
+	// Debug ----------------------------------------------
 
 	private static bool disableTool = false;
+	private static bool disableVariableNodes = false;
+	private static bool disableExtraFeatures = false;
 	private static bool debugMessages = true;
+	private static bool debugDontHidePorts = false;
 
 	//	----------------------------------------------------
 
 	// TODO Optimise reflection code
-	// TODO Copying Float nodes is a bit glitchy. The Vector port still shows
+
+	// Extra features :
+	// Group colours
+	// Hotkey for switching the A/B input ports around for math based nodes.
+	// Hotkey for adding Split node
 
 	// https://github.com/Unity-Technologies/Graphics/tree/master/com.unity.shadergraph/Editor
 	// https://github.com/Unity-Technologies/UnityCsReference/tree/master/Modules/GraphViewEditor
@@ -97,7 +109,8 @@ public class SGVariables {
 				prev = focusedWindow;
 			}
 
-			UpdateVariableNodes();
+			if (!disableVariableNodes) UpdateVariableNodes();
+			if (!disableExtraFeatures) UpdateExtraFeatures();
 			loadVariables = false;
 		}
 	}
@@ -107,6 +120,11 @@ public class SGVariables {
 		for (int i = editedPorts.Count - 1; i >= 0; i--) {
 			Port port = editedPorts[i];
 			Node node = port.node;
+			if (node == null) {
+				// Node has been deleted, ignore
+				editedPorts.RemoveAt(i);
+				continue;
+			}
 
 			Port outputConnectedToInput = GetPortConnectedToInput(port);
 			if (outputConnectedToInput != null) {
@@ -126,19 +144,43 @@ public class SGVariables {
 				}
 				// we avoid changing the active port to prevent infinite loop
 
-				string portType = GetPortType(outputConnectedToInput);
-				string inputPortType = GetPortType(port);
+				string connectedSlotType = GetPortType(outputConnectedToInput);
+				string inputSlotType = GetPortType(port);
 
-				if (portType != inputPortType) {
-					Debug.Log(portType + " > " + inputPortType);
+				if (connectedSlotType != inputSlotType) {
+					Debug.Log(connectedSlotType + " > " + inputSlotType);
 
-					if (inputPortType.Contains("Vector4") && portType.Contains("Vector1")) {
+					NodePortType portType = NodePortType.Vector4;
+					if (connectedSlotType.Contains("Vector1")) {
+						portType = NodePortType.Vector1;
+					}
+					/*
+					else if (connectedSlotType.Contains("DynamicVector") || connectedSlotType.Contains("DynamicValue")){
+						// Handles output slots that can change between vector types (or vector/matrix types)
+						// e.g. Most math based nodes use DynamicVector. Multiply uses DynamicValue
+						var materialSlot = GetMaterialSlot(outputConnectedToInput);
+						FieldInfo dynamicTypeField = materialSlot.GetType().GetField("m_ConcreteValueType", bindingFlags);
+						string typeString = dynamicTypeField.GetValue(materialSlot).ToString();
+						if (typeString.Equals("Vector1")){
+							portType = NodePortType.Vector1;
+						}else{
+							portType = NodePortType.Vector4;
+						}
+					}*/
+					/*
+					- While this works, it introduces a problem where, if we connect a Dynamic port the type changes correctly,
+						but then if we trigger the Dynamic port to change type, it doesn't trigger the port Connect/Disconnect
+						so the type doesn't change! It does switch type when the graph is reloaded but also kinda bugged.
+					- Unsure how to fix this, but it's also easier just defaulting to Vector4 and if the user wants Float, 
+						pass it through a Float node first!
+					*/
+
+					if (inputSlotType.Contains("Vector4") && portType == NodePortType.Vector1) {
 						// If port is currently Vector4, but a Float has been attached
-						SetNodePortType(node, NodePortType.Vector1); // outputConnectedToInput
-					} else if (inputPortType.Contains("Vector1") && !portType.Contains("Vector1")) {
+						SetNodePortType(node, NodePortType.Vector1);
+					} else if (inputSlotType.Contains("Vector1") && portType == NodePortType.Vector4) {
 						// If port is currently Float, but a Vector2/3/4 has been attached
-						//TODO find a way to stop this being triggered every frame with Vector2/3
-						SetNodePortType(node, NodePortType.Vector4); // outputConnectedToInput
+						SetNodePortType(node, NodePortType.Vector4);
 					}
 				}
 			} else {
@@ -158,6 +200,7 @@ public class SGVariables {
 		}
 
 		Action<Node> nodeAction = (Node node) => {
+			if (node == null) return;
 			if (node.title.Equals("Register Variable")) {
 				TextField field = TryGetTextField(node);
 				if (field == null) {
@@ -165,7 +208,7 @@ public class SGVariables {
 					// Register Variable Setup (called once)
 					field = CreateTextField(node, out string variableName);
 					field.style.marginLeft = 25;
-					field.style.marginRight = 5;
+					field.style.marginRight = 4;
 					if (!variableName.Equals("")) {
 						// Register the node
 						Register("", variableName, node);
@@ -173,29 +216,9 @@ public class SGVariables {
 
 					field.RegisterValueChangedCallback(x => Register(x.previousValue, x.newValue, node));
 
-					// Disable port
-					//Port output = node.outputContainer.Query<Port>().AtIndex(0);
-					//output.SetEnabled(false);
-
-					/*
+					// Setup Node Type (Vector/Float)
 					var inputPorts = GetInputPorts(node);
-					var outputPorts = GetOutputPorts(node);
-
 					Port inputVector = inputPorts.AtIndex(0);
-					Port inputFloat = inputPorts.AtIndex(1);
-					HideInputPort(inputFloat);
-
-					Port outputFloat = outputPorts.AtIndex(1);
-					HideOutputPort(outputFloat);
-					*/
-
-					var inputPorts = GetInputPorts(node);
-					//var outputPorts = GetOutputPorts(node);
-					Port inputVector = inputPorts.AtIndex(0);
-					//Port inputFloat = inputPorts.AtIndex(1);
-					//Port outputFloat = outputPorts.AtIndex(1);
-					//HideInputPort(inputFloat);
-					//HideOutputPort(outputFloat);
 
 					Port connectedOutput = GetPortConnectedToInput(inputVector);
 					NodePortType portType = NodePortType.Vector4;
@@ -206,6 +229,8 @@ public class SGVariables {
 					}
 					SetNodePortType(node, portType);
 
+					// Register methods to port.OnConnect / port.OnDisconnect
+					// (is internal so we use reflection)
 					inputPorts.ForEach((Port port) => {
 						// internal Action<Port> OnConnect;
 						FieldInfo onConnectField = typeof(Port).GetField("OnConnect", bindingFlags);
@@ -216,6 +241,7 @@ public class SGVariables {
 						onConnectField.SetValue(port, onConnect + OnRegisterNodeInputPortConnected);
 						onDisconnectField.SetValue(port, onDisconnect + OnRegisterNodeInputPortDisconnected);
 					});
+					// If this breaks an alternative is to just check the ports each frame for different types
 
 				} else {
 					// Register Variable Update
@@ -269,53 +295,58 @@ public class SGVariables {
 					};
 					inputPorts.ForEach(portAction);
 
+					if (!node.expanded) {
+						bool hasPorts = node.RefreshPorts();
+						if (!hasPorts) HideElement(field);
+					} else {
+						ShowElement(field);
+					}
 				}
 			} else if (node.title.Equals("Get Variable")) {
 				TextField field = TryGetTextField(node);
 				if (field == null) {
 					// Get Variable Setup (called once)
 					field = CreateTextField(node, out string variableName);
-					field.style.marginLeft = 5;
+					field.style.marginLeft = 4;
 					field.style.marginRight = 25;
 					field.RegisterValueChangedCallback(x => Get(x.newValue, node));
 
-					// Makes it "look" disabled, but dragging a edge in will still allow it to be connected :\
-					//Port input = node.inputContainer.Query<Port>().AtIndex(0);
-					//input.SetEnabled(false);
-
-					/*
-					var inputPorts = GetInputPorts(node);
 					var outputPorts = GetOutputPorts(node);
-
-					Port inputVector = inputPorts.AtIndex(0);
-					Port inputFloat = inputPorts.AtIndex(1);
-					HideInputPort(inputFloat);
-
+					Port outputVector = outputPorts.AtIndex(0);
 					Port outputFloat = outputPorts.AtIndex(1);
-					HideOutputPort(outputFloat);
-					*/
 
-					string key = GetSerializedVariableKey(node).ToUpper();
-					if (!variables.ContainsKey(key)) {
-						SetNodePortType(node, NodePortType.Vector4);
+					// If both output ports are visible, do setup :
+					if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
+						string key = GetSerializedVariableKey(node);
+						Get(key, node);
 					}
 
 				} else {
+					if (!node.expanded) {
+						bool hasPorts = node.RefreshPorts();
+						if (!hasPorts) HideElement(field);
+					} else {
+						ShowElement(field);
+					}
+					/*
 					// Get Variable Update
 					var inputPorts = GetInputPorts(node);
-					Port inputVector = inputPorts.AtIndex(0);
+					Port inputActive = GetActivePort(inputPorts);
 
 					bool shouldRemove = false;
 					string key = GetSerializedVariableKey(node);
-					foreach (var edge in inputVector.connections) {
-						if (!edge.output.node.title.Equals("Register Variable") && variables.ContainsKey(key.ToUpper())) {
-							shouldRemove = true;
+					if (variables.ContainsKey(key.ToUpper())){
+						foreach (var edge in inputActive.connections) {
+							if (!edge.output.node.title.Equals("Register Variable")) {
+								shouldRemove = true;
+							}
+						}
+						if (shouldRemove) {
+							DisconnectAllEdges(node, inputActive);
+							Get(key, node);
 						}
 					}
-					if (shouldRemove) {
-						DisconnectAllEdges(node, inputVector);
-						Get(key, node);
-					}
+					*/
 				}
 			}
 		};
@@ -427,45 +458,71 @@ public class SGVariables {
 		return type;
 	}
 
+	private static NodePortType GetNodePortType(Node node) {
+		bool isRegisterNode = (node.title.Equals("Register Variable"));
+
+		var inputPorts = GetInputPorts(node);
+		var outputPorts = GetOutputPorts(node);
+
+		NodePortType currentPortType = NodePortType.Vector4;
+
+		// Hide Inputs
+		Port inputVector = inputPorts.AtIndex(0);
+		Port inputFloat = inputPorts.AtIndex(1);
+		Port outputVector = outputPorts.AtIndex(0);
+		Port outputFloat = outputPorts.AtIndex(1);
+
+		if (isRegisterNode) {
+			if (!IsPortHidden(inputVector)) {
+				currentPortType = NodePortType.Vector4;
+			} else if (!IsPortHidden(inputFloat)) {
+				currentPortType = NodePortType.Vector1;
+			}
+		} else {
+			if (!IsPortHidden(outputVector)) {
+				currentPortType = NodePortType.Vector4;
+			} else if (!IsPortHidden(outputFloat)) {
+				currentPortType = NodePortType.Vector1;
+			}
+		}
+		return currentPortType;
+	}
+
 	private static void SetNodePortType(Node node, NodePortType portType) {
 		bool isRegisterNode = (node.title.Equals("Register Variable"));
 
 		var inputPorts = GetInputPorts(node);
 		var outputPorts = GetOutputPorts(node);
 
-		// Hide Inputs
+		NodePortType currentPortType = GetNodePortType(node);
+		bool typeChanged = (currentPortType != portType);
+
 		Port inputVector = inputPorts.AtIndex(0);
 		Port inputFloat = inputPorts.AtIndex(1);
-		HideInputPort(inputVector);
-		HideInputPort(inputFloat);
-
 		Port outputVector = outputPorts.AtIndex(0);
 		Port outputFloat = outputPorts.AtIndex(1);
-		Port output = GetActivePort(outputPorts);
 
-		// Show Input, Show/Hide Outputs
-		bool typeChanged = false;
+		// Hide Ports
+		HideInputPort(inputVector);
+		HideInputPort(inputFloat);
+		HideOutputPort(outputVector);
+		HideOutputPort(outputFloat);
+
+		// Show Ports (if Get Variable node and typeChanged, move outputs to "active" port)
 		if (portType == NodePortType.Vector4) {
-			ShowInputPort(inputVector);
-			ShowOutputPort(outputVector);
-			if (output != outputVector) {
-				if (!isRegisterNode) MoveAllOutputs(node, output, outputVector);
-				output = outputVector;
-				typeChanged = true;
+			if (isRegisterNode) {
+				ShowInputPort(inputVector);
+			} else {
+				ShowOutputPort(outputVector);
+				if (typeChanged) MoveAllOutputs(node, outputFloat, outputVector);
 			}
-		} else {
-			HideOutputPort(outputVector);
-		}
-		if (portType == NodePortType.Vector1) {
-			ShowInputPort(inputFloat);
-			ShowOutputPort(outputFloat);
-			if (output != outputFloat) {
-				if (!isRegisterNode) MoveAllOutputs(node, output, outputFloat);
-				output = outputFloat;
-				typeChanged = true;
+		} else if (portType == NodePortType.Vector1) {
+			if (isRegisterNode) {
+				ShowInputPort(inputFloat);
+			} else {
+				ShowOutputPort(outputFloat);
+				if (typeChanged) MoveAllOutputs(node, outputVector, outputFloat);
 			}
-		} else {
-			HideOutputPort(outputFloat);
 		}
 
 		if (isRegisterNode && typeChanged) {
@@ -475,30 +532,6 @@ public class SGVariables {
 				SetNodePortType(n, portType);
 			}
 		}
-
-		/*
-		if (typeChanged) {
-			if (node.title.Equals("Register Variable")) {
-				if (connectedOutput != null) {
-					// Disconnect Inputs & Reconnect
-					DisconnectAllEdges(node, inputVector);
-					DisconnectAllEdges(node, inputFloat);
-
-					Connect(connectedOutput, inputVector);
-					Connect(connectedOutput, inputFloat);
-				}
-
-				// Relink to Get Variable nodes
-				List<Node> nodes = LinkToAllGetVariableNodes(GetSerializedVariableKey(node).ToUpper(), node);
-				foreach (Node n in nodes) {
-					SetNodePortType(n, portType, null);
-				}
-			} else {
-				// Get Variable
-
-			}
-		}
-		*/
 	}
 	#endregion
 
@@ -514,17 +547,25 @@ public class SGVariables {
 		// Setup Text Field 
 		TextField field = new TextField();
 		field.style.position = Position.Absolute;
-		//field.style.top = -35; // put field above (debug)
-		field.style.top = 39; // put field over first input/output port
+		if (debugDontHidePorts) {
+			field.style.top = -35; // put field above (debug)
+		} else {
+			field.style.top = 39; // put field over first input/output port
+		}
 		field.StretchToParentWidth();
+		// Note : Later we also adjust margins so it doesn't hide the required ports
+
+		//node.ElementAt(0).ElementAt(1).ElementAt(1).style.minHeight = 32;
 
 		var textInput = field.ElementAt(0);
 		textInput.style.fontSize = 25;
 		textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
+		//textInput.style.borderTopColor = new Color(0.13f, 0.13f, 0.13f); // #656565
 
 		field.value = variableName;
 
-		// Add TextField to node VisualElement
+		// Add TextField to node VisualElement 
+		// Note : This must match what's in TryGetTextField
 		node.Insert(1, field);
 		return field;
 	}
@@ -634,11 +675,10 @@ public class SGVariables {
 		SetSerializedVariableKey(node, newValue);
 
 		var outputPorts = GetOutputPorts(node);
-		//Port outputVector = outputPorts.AtIndex(0);
-		Port outputPort = GetActivePort(outputPorts);
 		if (previousKey) {
 			// As the value has changed, disconnect any output edges
 			// But first, change Get Variable node types back to Vector4 default
+			Port outputPort = outputPorts.AtIndex(0); // (doesn't matter which port we use, as all should be connected)
 			foreach (Edge edge in outputPort.connections) {
 				if (edge.input != null && edge.input.node != null) {
 					SetNodePortType(edge.input.node, NodePortType.Vector4);
@@ -650,11 +690,7 @@ public class SGVariables {
 
 		// Check if any 'Get Variable' nodes are using the key and connect them
 		if (newKey) {
-			NodePortType portType = NodePortType.Vector4;
-			if (GetPortType(outputPort).Contains("Vector1")) {
-				portType = NodePortType.Vector1;
-			}
-
+			NodePortType portType = GetNodePortType(node);
 			List<Node> nodes = LinkToAllGetVariableNodes(key, node);
 			foreach (Node n2 in nodes) {
 				SetNodePortType(n2, portType); // outputPort
@@ -674,17 +710,6 @@ public class SGVariables {
 					LinkRegisterToGetVariableNode(registerNode, n);
 					linkedNodes.Add(n);
 				}
-
-				/*
-				TextField field = TryGetTextField(n);
-				if (field != null) {
-					if (field.value.Trim().ToUpper() == key) {
-						// Connect!
-						LinkRegisterToGetVariableNode(registerNode, n);
-						linkedNodes.Add(n);
-					}
-				}
-				*/
 			}
 		};
 		graphView.nodes.ForEach(nodeAction);
@@ -725,24 +750,11 @@ public class SGVariables {
 			var inputPorts = GetInputPorts(node);
 
 			// Make sure Get Variable node matches Register Variable type
-			Port outputPort = GetActivePort(outputPorts);
-			NodePortType portType = NodePortType.Vector4;
-			if (GetPortType(outputPort).Contains("Vector1")) {
-				portType = NodePortType.Vector1;
-			}
-			SetNodePortType(node, portType);
+			SetNodePortType(node, GetNodePortType(varNode));
 
-			// Get active input and connect
-			//Port inputPort = GetActivePort(inputPorts);
-
-			if (outputPort != null) {
-				//DisconnectAllEdges(node, inputPort);
-				//Connect(outputPort, inputPort);
-				DisconnectAllInputs(node);
-				LinkRegisterToGetVariableNode(varNode, node);
-			} else {
-				Debug.LogWarning("Register/Get Variable nodes don't have input/output?");
-			}
+			// Link, Register Variable > Get Variable
+			DisconnectAllInputs(node);
+			LinkRegisterToGetVariableNode(varNode, node);
 		} else {
 			// Key doesn't exist. If any inputs, disconnect them
 			DisconnectAllInputs(node);
@@ -881,6 +893,7 @@ public class SGVariables {
 
 	#region Reflection
 	const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+	const BindingFlags bindingFlagsFlatten = BindingFlags.FlattenHierarchy | bindingFlags;
 
 	private static Type materialGraphEditWindowType;
 	private static Type userViewSettingsType;
@@ -890,10 +903,13 @@ public class SGVariables {
 	private static Type abstractMaterialNodeType;
 	private static Type materialSlotType;
 	private static Type IEdgeType;
+	private static Type colorNodeType;
 
 	private static VisualElement graphEditorView;
 	private static object graphData;
 	private static object edgeConnectorListener;
+
+	private static Type colorPickerType;
 
 	static void GetShaderGraphTypes() {
 		Assembly assembly = Assembly.Load(new AssemblyName("Unity.ShaderGraph.Editor"));
@@ -903,6 +919,10 @@ public class SGVariables {
 		abstractMaterialNodeType = assembly.GetType("UnityEditor.ShaderGraph.AbstractMaterialNode");
 		materialSlotType = assembly.GetType("UnityEditor.ShaderGraph.MaterialSlot");
 		IEdgeType = assembly.GetType("UnityEditor.Graphing.IEdge");
+		colorNodeType = assembly.GetType("UnityEditor.ShaderGraph.ColorNode");
+
+		Assembly assembly2 = Assembly.Load(new AssemblyName("UnityEditor"));
+		colorPickerType = assembly2.GetType("UnityEditor.ColorPicker");
 	}
 
 	// window:  MaterialGraphEditWindow  member: m_GraphEditorView ->
@@ -947,17 +967,19 @@ public class SGVariables {
 		// Nodes usually use it for the Search Box so it can display "Float" even if the user types "Vector 1"
 		// But it's also serialized in the actual Shader Graph file where it then isn't really used, so it's mine now!~
 		object materialNode = NodeToSGMaterialNode(node);
-		FieldInfo synonymsField = materialNode.GetType().GetField("synonyms");
-		string[] synonyms = (string[])synonymsField.GetValue(materialNode);
-		if (synonyms != null && synonyms.Length > 0) {
-			return synonyms[0];
+		if (materialNode != null) {
+			FieldInfo synonymsField = materialNode.GetType().GetField("synonyms");
+			string[] synonyms = (string[])synonymsField.GetValue(materialNode);
+			if (synonyms != null && synonyms.Length > 0) {
+				return synonyms[0];
+			}
 		}
 		return "";
 	}
 
 	private static void SetSerializedVariableKey(Node node, string key) {
 		object materialNode = NodeToSGMaterialNode(node);
-		FieldInfo synonymsField = materialNode.GetType().GetField("synonyms");
+		FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
 		synonymsField.SetValue(materialNode, new string[] { key });
 	}
 
@@ -1029,6 +1051,247 @@ public class SGVariables {
 			// Reflection for : graphData.RemoveEdge(IEdge edge)
 			graphDataType.GetMethod("RemoveEdge").Invoke(graphData, new object[] { edge });
 		}
+	}
+	#endregion
+
+	#region Extra Features
+
+	[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Swap A & B Ports _#s")]
+	static void FirstCommand() {
+		Debug.Log("You used the shortcut!");
+
+		List<ISelectable> selected = graphView.selection;
+		foreach (ISelectable s in selected) {
+			if (s is Node) {
+				Node node = (Node)s;
+				var materialNode = NodeToSGMaterialNode(node);
+				string type = materialNode.GetType().ToString();
+				type = type.Substring(type.LastIndexOf('.')+1);
+				Debug.Log(type);
+				if (type == "AddNode" || type == "SubtractNode" ||
+					type == "MultiplyNode" || type == "DivideNode" ||
+					type == "MaximumNode" || type == "MinimumNode" ||
+					type == "LerpNode" || type == "InverseLerpNode" ||
+					type == "StepNode" || type == "SmoothstepNode") {
+					var inputPorts = GetInputPorts(node);
+					Port a = inputPorts.AtIndex(0);
+					Port b = inputPorts.AtIndex(1);
+
+					// Swap connections
+					Port connectedA = GetPortConnectedToInput(a);
+					Port connectedB = GetPortConnectedToInput(b);
+					DisconnectAllInputs(node);
+					if (connectedA != null) Connect(connectedA, b);
+					if (connectedB != null) Connect(connectedB, a);
+
+					// Swap values (the values used if no port is connected)
+					var aSlot = GetMaterialSlot(a);
+					var bSlot = GetMaterialSlot(b);
+					var valueProperty = aSlot.GetType().GetProperty("value");
+					var valueA = valueProperty.GetValue(aSlot);
+					var valueB = valueProperty.GetValue(bSlot);
+					valueProperty.SetValue(aSlot, valueB);
+					valueProperty.SetValue(bSlot, valueA);
+					
+					if (connectedA == null && connectedB == null){
+						// If there's no connections we need to update values ourself
+						//graphDataType.GetMethod("ValidateGraph").Invoke(graphData, null);
+						//abstractMaterialNodeType.GetMethod("Dirty").Invoke(materialNode, new object[]{1});
+						//graphDataType.GetMethod("ValidateGraph").Invoke(graphData, null);
+					}
+
+				}
+			}
+		}
+	}
+
+	private static void UpdateExtraFeatures() {
+		//if (loadVariables) { // (first time load, but we kinda need to constantly check as groups could be copied)
+		// Load Group Colours
+		graphView.nodes.ForEach((Node node) => {
+			if (node.title.Equals("Color") && node.visible) {
+				if (GetSerializedVariableKey(node) == "GroupColor") {
+					var scope = node.GetContainingScope();
+					if (scope == null) {
+						// Node is not in group, the group may have been deleted.
+						// GraphData.RemoveNode(abstractMaterialNode);
+						MethodInfo addNode = graphDataType.GetMethod("RemoveNode", bindingFlags);
+						addNode.Invoke(graphData, new object[] { NodeToSGMaterialNode(node) });
+						return;
+					}
+					node.visible = false;
+					node.style.maxWidth = 100;
+					SetGroupColor(scope as Group, node, GetGroupNodeColor(node));
+				}
+			}
+		});
+		//}
+
+		// As we right-click group, add the manipulator
+		List<ISelectable> selected = graphView.selection;
+		foreach (ISelectable s in selected) {
+			if (s is Group) {
+				Group group = (Group)s;
+
+				if (editingGroup != null) {
+					editingGroup.RemoveManipulator(manipulator);
+				}
+				group.AddManipulator(manipulator);
+				editingGroup = group;
+			}
+		}
+
+		// User clicked context menu, show Color Picker
+		if (editingGuid != null) {
+			Node colorNode = GetGroupColorNode(editingGuid);
+			editingGroupColorNode = colorNode;
+			if (colorNode != null) {
+				if (colorNode.visible) {
+					colorNode.visible = false;
+					colorNode.style.maxWidth = 100;
+				}
+
+				// Couldn't figure out a way to show the colour picker from UIElements, so... reflection!
+				// Show(Action<Color> colorChangedCallback, Color col, bool showAlpha = true, bool hdr = false)
+				MethodInfo show = colorPickerType.GetMethod("Show",
+					new Type[] { typeof(Action<Color>), typeof(Color), typeof(bool), typeof(bool) }
+				);
+				Action<Color> action = GroupColourChanged;
+				show.Invoke(null, new object[] { action, GetGroupNodeColor(editingGroupColorNode), true, false });
+
+				editingGuid = null;
+			}
+		} else {
+			editingGroupColorNode = null;
+		}
+	}
+
+	static void BuildContextualMenu(ContextualMenuPopulateEvent evt) {
+		evt.menu.AppendSeparator();
+		evt.menu.AppendAction("Edit Group Color", OnMenuAction, DropdownMenuAction.AlwaysEnabled);
+	}
+
+	static void OnMenuAction(DropdownMenuAction action) {
+		if (editingGroup == null) return;
+		Debug.Log("OnMenuAction " + editingGroup.title);
+
+		string guid = GetGroupGuid(editingGroup);
+		if (guid == null) return;
+
+		Node colorNode = GetGroupColorNode(guid);
+		if (colorNode == null) {
+			// We store the group colour in a hidden colour node
+			CreateGroupColorNode(editingGroup);
+
+			// We need to wait until this node is actually created,
+			// so we'll store the guid in editingGuid and handle the rest
+			// in UpdateExtraFeatures()
+		}
+
+		editingGuid = guid;
+	}
+
+	private static ContextualMenuManipulator manipulator = new ContextualMenuManipulator(BuildContextualMenu);
+
+	private static Group editingGroup;
+	private static string editingGuid;
+	private static Node editingGroupColorNode;
+
+	private static PropertyInfo groupGuidField;
+
+	private static void CreateGroupColorNode(Group group) {
+		var groupData = group.userData;
+		if (groupData == null) return;
+
+		var nodeToAdd = Activator.CreateInstance(colorNodeType); // Type : ColorNode
+
+		// https://github.com/Unity-Technologies/Graphics/blob/master/com.unity.shadergraph/Editor/Data/Nodes/AbstractMaterialNode.cs
+
+		FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
+		synonymsField.SetValue(nodeToAdd, new string[] { "GroupColor" });
+
+		var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+		var colorStruct = a.GetValue(nodeToAdd);
+		var b = colorStruct.GetType().GetField("color");
+		b.SetValue(colorStruct, new Color(0.1f, 0.1f, 0.1f, 0.1f));
+		a.SetValue(nodeToAdd, colorStruct);
+
+		var groupProperty = abstractMaterialNodeType.GetProperty("group", bindingFlags); // Type : GroupData
+		var drawStateProperty = abstractMaterialNodeType.GetProperty("drawState", bindingFlags); // Type : DrawState
+		var previewExpandedProperty = abstractMaterialNodeType.GetProperty("previewExpanded", bindingFlags); // Type : Bool
+
+		previewExpandedProperty.SetValue(nodeToAdd, false);
+		var drawState = drawStateProperty.GetValue(nodeToAdd);
+		var positionProperty = drawState.GetType().GetProperty("position", bindingFlags);
+		var expandedProperty = drawState.GetType().GetProperty("expanded", bindingFlags);
+		Rect r = group.GetPosition();
+		r.x += 25;
+		r.y += 60;
+		positionProperty.SetValue(drawState, r);
+		expandedProperty.SetValue(drawState, false);
+		drawStateProperty.SetValue(nodeToAdd, drawState);
+		groupProperty.SetValue(nodeToAdd, groupData);
+
+		// GraphData.AddNode(abstractMaterialNode)
+		MethodInfo addNode = graphDataType.GetMethod("AddNode", bindingFlags);
+		addNode.Invoke(graphData, new object[] { nodeToAdd });
+	}
+
+	private static string GetGroupGuid(Scope scope) {
+		var groupData = scope.userData;
+		if (groupData == null) return null;
+		if (groupGuidField == null) groupGuidField = groupData.GetType().GetProperty("objectId", bindingFlags);
+		var groupGuid = (string)groupGuidField.GetValue(groupData);
+		Debug.Log("GroupGuid : " + groupGuid);
+		return groupGuid;
+	}
+
+	private static Node GetGroupColorNode(string guid) {
+		List<Node> nodes = graphView.nodes.ToList();
+		foreach (Node node in nodes) {
+			if (node.title.Equals("Color")) {
+				var scope = node.GetContainingScope();
+				if (scope == null) continue; // Node is not in group
+				if (GetGroupGuid(scope) == guid && GetSerializedVariableKey(node) == "GroupColor") {
+					Debug.Log("Found node in group~");
+					//node.visible = false;
+					//node.style.maxWidth = 100;
+					return node;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static Color GetGroupNodeColor(Node node) {
+		var materialNode = NodeToSGMaterialNode(node);
+		var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+		var colorStruct = a.GetValue(materialNode);
+		var b = colorStruct.GetType().GetField("color");
+		return (Color)b.GetValue(colorStruct);
+	}
+
+	private static void SetGroupColor(Group group, Node groupNode, Color color) {
+		group.style.backgroundColor = color;
+
+		var materialNode = NodeToSGMaterialNode(groupNode);
+		var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+		var colorStruct = a.GetValue(materialNode);
+		var b = colorStruct.GetType().GetField("color");
+		b.SetValue(colorStruct, color);
+		a.SetValue(materialNode, colorStruct);
+
+		var label = group.Query<UnityEngine.UIElements.Label>().First();
+		if (color.grayscale > 0.5 && color.a > 0.4) {
+			//label.style.backgroundColor = new Color(0,0,0,0.5f);
+			label.style.color = Color.black;
+		} else {
+			label.style.color = Color.white;
+		}
+	}
+
+	private static void GroupColourChanged(Color color) {
+		SetGroupColor(editingGroup, editingGroupColorNode, color);
 	}
 	#endregion
 
