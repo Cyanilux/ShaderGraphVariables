@@ -70,8 +70,8 @@ namespace Cyan {
 						Port b = inputPorts.AtIndex(1);
 
 						// Swap connections
-						Port connectedA = GetPortConnectedToInput(a);
-						Port connectedB = GetPortConnectedToInput(b);
+						Port connectedA = GetConnectedPort(a);
+						Port connectedB = GetConnectedPort(b);
 						DisconnectAllInputs(node);
 						if (connectedA != null) Connect(connectedA, b);
 						if (connectedB != null) Connect(connectedB, a);

@@ -14,8 +14,23 @@ Github Repo : https://github.com/Cyanilux/ShaderGraphVariables
 
 Main Feature :
 	- Adds "Register Variable" and "Get Variable" nodes (SubGraphs technically)
+		If the TextField in both nodes is the same, it creates an invisible connection/wire/edge
+		between them. The variables are **local to the graph** - they won't be shared between graphs or subgraphs.
+	- It doesn't alter the SG file (except for editing the node's "synonyms" field,
+		which is serialized, but isn't used in-graph anyway - only for nodes in the Add Node menu).
+		If the tool is removed the graph should still load, However it does 
+		use a few SubGraphs and if they don't exist you'll need to remove those nodes,
+		reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
 
-Extra Features : (see ExtraFeatures.cs)
+Extra Features : (see ExtraFeatures.cs for more info)
+	- Group Colors (Right-click group name)
+	- 'Port Swap' Hotkey (Default : S)
+	- 'Add Node' Hotkeys (Default : Alpha Number keys, 1 to 0)
+		- To change nodes : Tools > SGVariablesExtraFeatures > Rebind Node Bindings
+
+	- To edit keybindings : Edit > Shortcuts (search for SGVariables)
+		- Note, try to avoid conflicts with SG's hotkeys (mainly A, F and O) as those can't be rebound
+		- https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts
 
 Setup:
 	- Put this file in an Editor folder (or install as Package via git url)
@@ -111,6 +126,8 @@ namespace Cyan {
 
 		#region SGVariables
 
+		private static List<Port> editedPorts = new List<Port>();
+
 		private static void OnUndoRedo() {
 			// Undo/Redo redraws the graph, so will cause "key already in use" errors.
 			// Doing this will trigger the variables to be reloaded
@@ -118,91 +135,8 @@ namespace Cyan {
 			initTime = Time.realtimeSinceStartup;
 		}
 
-		private static List<Port> editedPorts = new List<Port>();
-
 		private static void UpdateVariableNodes() {
-
-			for (int i = editedPorts.Count - 1; i >= 0; i--) {
-				Port port = editedPorts[i];
-				Node node = port.node;
-				if (node == null) {
-					// Node has been deleted, ignore
-					editedPorts.RemoveAt(i);
-					continue;
-				}
-
-				Port outputConnectedToInput = GetPortConnectedToInput(port);
-				if (outputConnectedToInput != null) {
-					if (debugMessages) Debug.Log(outputConnectedToInput.portName + " > " + port.portName);
-
-					var inputPorts = GetInputPorts(node);
-					Port inputVector = inputPorts.AtIndex(0);
-					Port inputFloat = inputPorts.AtIndex(1);
-
-					// Disconnect Inputs & Reconnect
-					if (IsPortHidden(inputVector)) {
-						DisconnectAllEdges(node, inputVector);
-						Connect(outputConnectedToInput, inputVector);
-					} else { //if (IsPortHidden(inputFloat)){
-						DisconnectAllEdges(node, inputFloat);
-						Connect(outputConnectedToInput, inputFloat);
-					}
-					// we avoid changing the active port to prevent infinite loop
-
-					string connectedSlotType = GetPortType(outputConnectedToInput);
-					string inputSlotType = GetPortType(port);
-
-					if (connectedSlotType != inputSlotType) {
-						if (debugMessages) Debug.Log(connectedSlotType + " > " + inputSlotType);
-
-						NodePortType portType = NodePortType.Vector4;
-						if (connectedSlotType.Contains("Vector1")) {
-							portType = NodePortType.Vector1;
-						}
-						/*
-						else if (connectedSlotType.Contains("DynamicVector") || connectedSlotType.Contains("DynamicValue")){
-							// Handles output slots that can change between vector types (or vector/matrix types)
-							// e.g. Most math based nodes use DynamicVector. Multiply uses DynamicValue
-							var materialSlot = GetMaterialSlot(outputConnectedToInput);
-							FieldInfo dynamicTypeField = materialSlot.GetType().GetField("m_ConcreteValueType", bindingFlags);
-							string typeString = dynamicTypeField.GetValue(materialSlot).ToString();
-							if (typeString.Equals("Vector1")){
-								portType = NodePortType.Vector1;
-							}else{
-								portType = NodePortType.Vector4;
-							}
-						}*/
-						/*
-						- While this works, it introduces a problem where, if we connect a Dynamic port the type changes correctly,
-							but then if we trigger the Dynamic port to change type, it doesn't trigger the port Connect/Disconnect
-							so the type doesn't change! It does switch type when the graph is reloaded but also kinda bugged.
-						- Unsure how to fix this, but it's also easier just defaulting to Vector4 and if the user wants Float, 
-							pass it through a Float node first!
-						*/
-
-						if (inputSlotType.Contains("Vector4") && portType == NodePortType.Vector1) {
-							// If port is currently Vector4, but a Float has been attached
-							SetNodePortType(node, NodePortType.Vector1);
-						} else if (inputSlotType.Contains("Vector1") && portType == NodePortType.Vector4) {
-							// If port is currently Float, but a Vector2/3/4 has been attached
-							SetNodePortType(node, NodePortType.Vector4);
-						}
-					}
-				} else {
-					// Removed Port
-					var inputPorts = GetInputPorts(node);
-					inputPorts.ForEach((Port p) => {
-						if (p != port) {
-							// we avoid changing the active port to prevent infinite loop
-							DisconnectAllEdges(node, p);
-						}
-					});
-
-					// Default to Vector4 type
-					SetNodePortType(node, NodePortType.Vector4);
-				}
-				editedPorts.RemoveAt(i);
-			}
+			HandlePortUpdates();
 
 			Action<Node> nodeAction = (Node node) => {
 				if (node == null) return;
@@ -223,15 +157,50 @@ namespace Cyan {
 						// Setup Node Type (Vector/Float)
 						var inputPorts = GetInputPorts(node);
 						Port inputVector = inputPorts.AtIndex(0);
-
-						Port connectedOutput = GetPortConnectedToInput(inputVector);
+						Port inputFloat = inputPorts.AtIndex(1);
+						Port connectedOutput = GetConnectedPort(inputVector);
+						Port connectedOutputF = GetConnectedPort(inputFloat);
 						NodePortType portType = NodePortType.Vector4;
+
 						if (connectedOutput != null) {
 							if (GetPortType(connectedOutput).Contains("Vector1")) {
 								portType = NodePortType.Vector1;
 							}
 						}
+						if (connectedOutputF != null) {
+							if (GetPortType(connectedOutputF).Contains("Vector1")) {
+								portType = NodePortType.Vector1;
+							}
+						}						
+	
 						SetNodePortType(node, portType);
+
+						if (connectedOutput == null && connectedOutputF == null){
+						}else if (connectedOutput == null || connectedOutputF == null){
+							// Only one of the ports is connected.
+							// This can happen if node was created while dragging an edge from an output port
+							// We need to make sure both are connected :
+							if (connectedOutput == null) {
+								Connect(connectedOutputF, inputVector);
+								Connect(connectedOutputF, inputFloat);
+							} else {
+								Connect(connectedOutput, inputVector);
+								Connect(connectedOutput, inputFloat);
+							}
+						}
+
+						var outputPorts = GetOutputPorts(node);
+						Port outputVector = outputPorts.AtIndex(0);
+						Port outputFloat = outputPorts.AtIndex(1);
+						Port connectedInput = GetConnectedPort(outputVector);
+						Port connectedInputF = GetConnectedPort(outputFloat);
+						if ((connectedInput != null && !connectedInput.node.title.Equals("Get Variable")) ||
+							(connectedInputF != null && !connectedInputF.node.title.Equals("Get Variable"))){
+							// Not allowed to connect to the inputs of Register Variable node
+							// (unless it's the Get Variable node, which is connected automatically)
+							// This can happen if node was created while dragging an edge from an input port
+							DisconnectAllOutputs(node);
+						}
 
 						// Register methods to port.OnConnect / port.OnDisconnect
 						// (is internal so we use reflection)
@@ -296,11 +265,20 @@ namespace Cyan {
 						var outputPorts = GetOutputPorts(node);
 						Port outputVector = outputPorts.AtIndex(0);
 						Port outputFloat = outputPorts.AtIndex(1);
-
+						
 						// If both output ports are visible, do setup :
+						// (as Register Variable node may trigger it first)
 						if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
 							string key = GetSerializedVariableKey(node);
 							Get(key, node);
+						}
+
+						Port connectedInputF = GetConnectedPort(outputFloat);
+						NodePortType portType = GetNodePortType(node);
+						if (connectedInputF != null && portType == NodePortType.Vector4){
+							// Something is connected to the Float port, when the type is Vector
+							// This can happen if node was created while dragging an edge from an input port
+							MoveAllOutputs(node, outputFloat, outputVector);
 						}
 
 					} else {
@@ -328,12 +306,101 @@ namespace Cyan {
 								Get(key, node);
 							}
 						}
+						// Not needed anymore, figured out a way to hide the ports and prevent connecting
 						*/
 					}
 				}
 			};
 
 			if (graphView != null) graphView.nodes.ForEach(nodeAction);
+		}
+
+		private static void HandlePortUpdates(){
+			for (int i = editedPorts.Count - 1; i >= 0; i--) {
+				Port port = editedPorts[i];
+				Node node = port.node;
+				if (node == null) {
+					// Node has been deleted, ignore
+					editedPorts.RemoveAt(i);
+					continue;
+				}
+
+				Debug.Log("CHECKING editedPort");
+
+				Port outputConnectedToInput = GetConnectedPort(port);
+				if (outputConnectedToInput != null) {
+					if (debugMessages) Debug.Log(outputConnectedToInput.portName + " > " + port.portName);
+
+					var inputPorts = GetInputPorts(node);
+					Port inputVector = inputPorts.AtIndex(0);
+					Port inputFloat = inputPorts.AtIndex(1);
+
+					// Disconnect Inputs & Reconnect
+					if (IsPortHidden(inputVector)) {
+						DisconnectAllEdges(node, inputVector);
+						Connect(outputConnectedToInput, inputVector);
+					} else { //if (IsPortHidden(inputFloat)){
+						DisconnectAllEdges(node, inputFloat);
+						Connect(outputConnectedToInput, inputFloat);
+					}
+					// we avoid changing the active port to prevent infinite loop
+
+					string connectedSlotType = GetPortType(outputConnectedToInput);
+					string inputSlotType = GetPortType(port);
+
+					if (connectedSlotType != inputSlotType) {
+						if (debugMessages) Debug.Log(connectedSlotType + " > " + inputSlotType);
+
+						NodePortType portType = NodePortType.Vector4;
+						if (connectedSlotType.Contains("Vector1")) {
+							portType = NodePortType.Vector1;
+						}
+						/*
+						else if (connectedSlotType.Contains("DynamicVector") || connectedSlotType.Contains("DynamicValue")){
+							// Handles output slots that can change between vector types (or vector/matrix types)
+							// e.g. Most math based nodes use DynamicVector. Multiply uses DynamicValue
+							var materialSlot = GetMaterialSlot(outputConnectedToInput);
+							FieldInfo dynamicTypeField = materialSlot.GetType().GetField("m_ConcreteValueType", bindingFlags);
+							string typeString = dynamicTypeField.GetValue(materialSlot).ToString();
+							if (typeString.Equals("Vector1")){
+								portType = NodePortType.Vector1;
+							}else{
+								portType = NodePortType.Vector4;
+							}
+						}*/
+						/*
+						- While this works, it introduces a problem where, if we connect a Dynamic port the type changes correctly,
+							but then if we trigger the Dynamic port to change type, it doesn't trigger the port Connect/Disconnect
+							so the type doesn't change! It does switch type when the graph is reloaded but also kinda bugged.
+						- Unsure how to fix this, but it's also easier just defaulting to Vector4 and if the user wants Float, 
+							pass it through a Float node first!
+						*/
+
+						Debug.Log("TYPE : " + portType);
+
+						if (inputSlotType.Contains("Vector4") && portType == NodePortType.Vector1) {
+							// If port is currently Vector4, but a Float has been attached
+							SetNodePortType(node, NodePortType.Vector1);
+						} else if (inputSlotType.Contains("Vector1") && portType == NodePortType.Vector4) {
+							// If port is currently Float, but a Vector2/3/4 has been attached
+							SetNodePortType(node, NodePortType.Vector4);
+						}
+					}
+				} else {
+					// Removed Port
+					var inputPorts = GetInputPorts(node);
+					inputPorts.ForEach((Port p) => {
+						if (p != port) {
+							// we avoid changing the active port to prevent infinite loop
+							DisconnectAllEdges(node, p);
+						}
+					});
+
+					// Default to Vector4 type
+					SetNodePortType(node, NodePortType.Vector4);
+				}
+				editedPorts.RemoveAt(i);
+			}
 		}
 
 		#endregion
@@ -460,7 +527,24 @@ namespace Cyan {
 			return null;
 		}
 
-		public static Port GetPortConnectedToInput(Port port) {
+		/// <summary>
+		/// Get the port connected to this port.
+		/// If an input port is passed in, there should only be one connected (or zero, in which case this returns null).
+		/// If an output port is passed in, the other port in the first connection is returned (or again, null if no connections).
+		/// If you need to check every connection for the output port, use "foreach (Edge edge in port.connections){...}" instead.
+		/// </summary>
+		public static Port GetConnectedPort(Port port) {
+			foreach (Edge edge in port.connections) {
+				if (edge.parent == null) {
+					// ignore any "broken" edges (shouldn't happen anymore (see Connect function), but just to be safe)
+					continue;
+				}
+				Port input = edge.input;
+				Port output = edge.output;
+				return (output == port) ? input : output;
+			}
+			return null;
+			/*
 			int n = 0;
 			Port p = null;
 			Edge brokenEdge = null;
@@ -482,7 +566,7 @@ namespace Cyan {
 			}
 
 			if (debugMessages) Debug.Log("port " + port.portName + "has " + n + "connections, returned " + ((p != null) ? p.portName : "null"));
-			return p;
+			return p;*/
 		}
 
 		private static string GetPortType(Port port) {
