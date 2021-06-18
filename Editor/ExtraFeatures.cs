@@ -17,11 +17,13 @@ Extra Features :
 		- A colour picker should open, allowing you to choose a colour (including alpha)
 		- Behind the scenes this creates a hidden Color node in the group. It can only be moved with
 			the group so try to move the group as a whole rather than nodes inside it.
-	- "S" key will swap the first two ports (usually A and B) on all currently selected nodes
+	- 'Port Swap' Hotkey
+		- "S" key will swap the first two ports (usually A and B) on all currently selected nodes
 		- Enabled for nodes : Add, Subtract, Multiply, Divide, Maximum, Minimum, Lerp, Inverse Lerp, Step and Smoothstep
 		- Note : It needs at least one connection to swap. If both ports are empty, it won't swap the values as it doesn't 
 			update properly and I couldn't find a way to force-update it.
-	- Support for binding 10 hotkeys for quickly add specific nodes to the graph (at mouse position)
+	- 'Add Node' Hotkeys (Default : Alpha Number keys, 1 to 0)
+		- Bind 10 hotkeys for quickly adding specific nodes to the graph (at mouse position)
 		- Defaults are :
 			- 1 : Add
 			- 2 : Subtract
@@ -33,10 +35,10 @@ Extra Features :
 			- 8 : Absolute
 			- 9 : Step
 			- 0 : Smoothstep
-		- To change nodes : Tools > SGVariablesExtraFeatures > Rebind Node Bindings
-		- To edit keybindings : Edit > Shortcuts (search for SGVariables)
-			- Note, try to avoid conflicts with SG's hotkeys (mainly A, F and O) as those can't be rebound
-			- https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts
+		- To change nodes : Tools → SGVariablesExtraFeatures → Rebind Node Bindings
+	- To edit keybindings : Edit → Shortcuts (search for SGVariables)
+		- Note, try to avoid conflicts with SG's hotkeys (mainly A, F and O) as those can't be rebound
+		- https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts
 
 */
 
@@ -221,6 +223,12 @@ namespace Cyan {
 			AddNode(type, r);
 		}
 
+		private static PropertyInfo drawStateProperty;
+		private static PropertyInfo positionProperty;
+		private static PropertyInfo expandedProperty;
+
+		private static MethodInfo addNodeMethod;
+
 		private static void AddNode(Type type, Rect position) {
 			if (type == null) return;
 			var nodeToAdd = Activator.CreateInstance(type);
@@ -230,17 +238,24 @@ namespace Cyan {
 
 			// https://github.com/Unity-Technologies/Graphics/blob/master/com.unity.shadergraph/Editor/Data/Nodes/AbstractMaterialNode.cs
 
-			var drawStateProperty = abstractMaterialNodeType.GetProperty("drawState", bindingFlags); // Type : DrawState
+			if (drawStateProperty == null) {
+				drawStateProperty = abstractMaterialNodeType.GetProperty("drawState", bindingFlags); // Type : DrawState
+			}
+
 			var drawState = drawStateProperty.GetValue(nodeToAdd);
-			var positionProperty = drawState.GetType().GetProperty("position", bindingFlags);
-			var expandedProperty = drawState.GetType().GetProperty("expanded", bindingFlags);
+			if (positionProperty == null)
+				positionProperty = drawState.GetType().GetProperty("position", bindingFlags);
+			if (expandedProperty == null)
+				expandedProperty = drawState.GetType().GetProperty("expanded", bindingFlags);
 
 			positionProperty.SetValue(drawState, position);
 			drawStateProperty.SetValue(nodeToAdd, drawState);
 
 			// GraphData.AddNode(abstractMaterialNode)
-			MethodInfo addNode = graphDataType.GetMethod("AddNode", bindingFlags);
-			addNode.Invoke(graphData, new object[] { nodeToAdd });
+			if (addNodeMethod == null)
+				addNodeMethod = graphDataType.GetMethod("AddNode", bindingFlags);
+
+			addNodeMethod.Invoke(graphData, new object[] { nodeToAdd });
 
 			if (debugMessages) Debug.Log("Added Node of Type " + type.ToString());
 		}
@@ -264,13 +279,6 @@ namespace Cyan {
 			SetSerializedValues(materialNode, new string[] { key });
 		}
 
-		private static Type colorPickerType;
-		private static void GetColorPickerType() {
-			// pretty hacky
-			Assembly assembly = Assembly.Load(new AssemblyName("UnityEditor"));
-			colorPickerType = assembly.GetType("UnityEditor.ColorPicker");
-		}
-
 		internal static void UpdateExtraFeatures() {
 			//if (loadVariables) { // (first time load, but we kinda need to constantly check as groups could be copied)
 			// Load Group Colours
@@ -281,8 +289,7 @@ namespace Cyan {
 						if (scope == null) {
 							// Node is not in group, the group may have been deleted.
 							// GraphData.RemoveNode(abstractMaterialNode);
-							MethodInfo addNode = graphDataType.GetMethod("RemoveNode", bindingFlags);
-							addNode.Invoke(graphData, new object[] { NodeToSGMaterialNode(node) });
+							RemoveNode(node);
 							return;
 						}
 						node.visible = false;
@@ -357,22 +364,35 @@ namespace Cyan {
 						colorNode.style.maxWidth = 100;
 					}
 
-					// Couldn't figure out a way to show the colour picker from UIElements, so... reflection!
-					// Show(Action<Color> colorChangedCallback, Color col, bool showAlpha = true, bool hdr = false)
-
-					if (colorPickerType == null) GetColorPickerType();
-
-					MethodInfo show = colorPickerType.GetMethod("Show",
-						new Type[] { typeof(Action<Color>), typeof(Color), typeof(bool), typeof(bool) }
-					);
-					Action<Color> action = GroupColourChanged;
-					show.Invoke(null, new object[] { action, GetGroupNodeColor(editingGroupColorNode), true, false });
+					ShowColorPicker(GroupColourChanged, GetGroupNodeColor(editingGroupColorNode), true, false);
 
 					editingGuid = null;
 				}
 			} else {
 				editingGroupColorNode = null;
 			}
+		}
+
+		private static Type colorPickerType;
+		private static void GetColorPickerType() {
+			// pretty hacky
+			Assembly assembly = Assembly.Load(new AssemblyName("UnityEditor"));
+			colorPickerType = assembly.GetType("UnityEditor.ColorPicker");
+		}
+
+		private static MethodInfo showColorPicker;
+
+		public static void ShowColorPicker(Action<Color> action, Color initalColor, bool showAlpha, bool hdr) {
+			// Couldn't figure out a way to show the colour picker from UIElements, so... reflection!
+			// Show(Action<Color> colorChangedCallback, Color col, bool showAlpha = true, bool hdr = false)
+
+			if (colorPickerType == null) GetColorPickerType();
+			if (showColorPicker == null) {
+				showColorPicker = colorPickerType.GetMethod("Show",
+					new Type[] { typeof(Action<Color>), typeof(Color), typeof(bool), typeof(bool) }
+				);
+			}
+			showColorPicker.Invoke(null, new object[] { action, initalColor, showAlpha, hdr });
 		}
 
 		static void BuildContextualMenu(ContextualMenuPopulateEvent evt) {
@@ -407,6 +427,11 @@ namespace Cyan {
 		private static Node editingGroupColorNode;
 
 		private static PropertyInfo groupGuidField;
+		private static PropertyInfo colorProperty;
+		private static PropertyInfo groupProperty;
+		private static PropertyInfo previewExpandedProperty;
+		
+		private static FieldInfo colorField;
 
 		private static void CreateGroupColorNode(Group group) {
 			var groupData = group.userData;
@@ -416,23 +441,30 @@ namespace Cyan {
 
 			// https://github.com/Unity-Technologies/Graphics/blob/master/com.unity.shadergraph/Editor/Data/Nodes/AbstractMaterialNode.cs
 
-			FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
+			if (synonymsField == null) synonymsField = abstractMaterialNodeType.GetField("synonyms");
 			synonymsField.SetValue(nodeToAdd, new string[] { "GroupColor" });
 
-			var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
-			var colorStruct = a.GetValue(nodeToAdd);
-			var b = colorStruct.GetType().GetField("color");
-			b.SetValue(colorStruct, new Color(0.1f, 0.1f, 0.1f, 0.1f));
-			a.SetValue(nodeToAdd, colorStruct);
+			if (colorProperty == null) colorProperty = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+			var colorStruct = colorProperty.GetValue(nodeToAdd);
+			if (colorField == null) colorField = colorStruct.GetType().GetField("color");
+			colorField.SetValue(colorStruct, new Color(0.1f, 0.1f, 0.1f, 0.1f));
+			colorProperty.SetValue(nodeToAdd, colorStruct);
 
-			var groupProperty = abstractMaterialNodeType.GetProperty("group", bindingFlags); // Type : GroupData
-			var drawStateProperty = abstractMaterialNodeType.GetProperty("drawState", bindingFlags); // Type : DrawState
-			var previewExpandedProperty = abstractMaterialNodeType.GetProperty("previewExpanded", bindingFlags); // Type : Bool
+			if (groupProperty == null)
+				groupProperty = abstractMaterialNodeType.GetProperty("group", bindingFlags); // Type : GroupData
+			if (drawStateProperty == null)
+				drawStateProperty = abstractMaterialNodeType.GetProperty("drawState", bindingFlags); // Type : DrawState
+			if (previewExpandedProperty == null)
+				previewExpandedProperty = abstractMaterialNodeType.GetProperty("previewExpanded", bindingFlags); // Type : Bool
 
 			previewExpandedProperty.SetValue(nodeToAdd, false);
+
 			var drawState = drawStateProperty.GetValue(nodeToAdd);
-			var positionProperty = drawState.GetType().GetProperty("position", bindingFlags);
-			var expandedProperty = drawState.GetType().GetProperty("expanded", bindingFlags);
+			if (positionProperty == null)
+				positionProperty = drawState.GetType().GetProperty("position", bindingFlags);
+			if (expandedProperty == null)
+				expandedProperty = drawState.GetType().GetProperty("expanded", bindingFlags);
+			
 			Rect r = group.GetPosition();
 			r.x += 25;
 			r.y += 60;
@@ -442,8 +474,10 @@ namespace Cyan {
 			groupProperty.SetValue(nodeToAdd, groupData);
 
 			// GraphData.AddNode(abstractMaterialNode)
-			MethodInfo addNode = graphDataType.GetMethod("AddNode", bindingFlags);
-			addNode.Invoke(graphData, new object[] { nodeToAdd });
+			if (addNodeMethod == null)
+				addNodeMethod = graphDataType.GetMethod("AddNode", bindingFlags);
+
+			addNodeMethod.Invoke(graphData, new object[] { nodeToAdd });
 		}
 
 		private static string GetGroupGuid(Scope scope) {
@@ -472,10 +506,10 @@ namespace Cyan {
 
 		private static Color GetGroupNodeColor(Node node) {
 			var materialNode = NodeToSGMaterialNode(node);
-			var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
-			var colorStruct = a.GetValue(materialNode);
-			var b = colorStruct.GetType().GetField("color");
-			return (Color)b.GetValue(colorStruct);
+			if (colorProperty == null) colorProperty = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+			var colorStruct = colorProperty.GetValue(materialNode);
+			if (colorField == null) colorField = colorStruct.GetType().GetField("color");
+			return (Color)colorField.GetValue(colorStruct);
 		}
 
 		private static void SetGroupColor(Group group, Node groupNode, Color color) {
@@ -488,15 +522,14 @@ namespace Cyan {
 			group.style.borderRightColor = color;
 
 			var materialNode = NodeToSGMaterialNode(groupNode);
-			var a = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
-			var colorStruct = a.GetValue(materialNode);
-			var b = colorStruct.GetType().GetField("color");
-			b.SetValue(colorStruct, color);
-			a.SetValue(materialNode, colorStruct);
+			if (colorProperty == null) colorProperty = colorNodeType.GetProperty("color"); // SG Color struct, not UnityEngine.Color
+			var colorStruct = colorProperty.GetValue(materialNode);
+			if (colorField == null) colorField = colorStruct.GetType().GetField("color");
+			colorField.SetValue(colorStruct, color);
+			colorProperty.SetValue(materialNode, colorStruct);
 
 			var label = group.Query<UnityEngine.UIElements.Label>().First();
 			if (color.grayscale > 0.5 && color.a > 0.4) {
-				//label.style.backgroundColor = new Color(0,0,0,0.5f);
 				label.style.color = Color.black;
 			} else {
 				label.style.color = Color.white;

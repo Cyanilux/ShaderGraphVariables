@@ -7,7 +7,7 @@
   - These nodes (technically subgraphs) include a TextField where you can enter a variable name (not case sensitive).
   - They automatically link up with invisible connections/wires/edges.
   - These variables are **local to the graph** - they won't be shared between other graphs or subgraphs.
-- Ssupports **Vector** and **Float** types.
+- Supports **Vector** and **Float** types.
   - Vector2/3 will be promoted to Vector4. After `Get Variable`, can `Split` and re-`Combine` after if required.
   - If a float is connected the port will automatically change. However note that DynamicVector/DynamicValue slots (used by most math nodes) currently default to the Vector4 port instead. If you require float, put the value through a `Float` node before connecting.
 - The variable names are serialized using the node's "synonyms" field, which is unused by the graph (only used for nodes in the Add Node menu). If the tool is removed the graph should still load correctly. However it does use a few SubGraphs and if they don't exist you'll need to remove those nodes, reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
@@ -25,11 +25,24 @@ If there's any errors/problems, let me know by opening an [issue](https://github
 <img src="https://user-images.githubusercontent.com/69320946/122465680-4b553080-cfb0-11eb-9f90-f6573de90084.gif" width="600">
 
 - 'Port Swap' Hotkey (Default : S)
+  - Swaps ports on selected nodes
+  - Enabled for nodes : Add, Subtract, Multiply, Divide, Maximum, Minimum, Lerp, Inverse Lerp, Step and Smoothstep
 <img src="https://user-images.githubusercontent.com/69320946/122465666-47c1a980-cfb0-11eb-918a-5e22c8423dde.gif" width="600">
 
 - 'Add Node' Hotkeys (Default : Alpha Number keys, 1 to 0)
-  - To change nodes : Tools > SGVariablesExtraFeatures > Rebind Node Bindings
-- To edit keybindings : Edit > Shortcuts (search for SGVariables)
+  - 10 hotkeys for quickly adding nodes at the mouse position. Defaults are :
+    - 1 : Add
+    - 2 : Subtract
+    - 3 : Multiply
+    - 4 : Lerp
+    - 5 : Split
+    - 6 : One Minus
+    - 7 : Negate
+    - 8 : Absolute
+    - 9 : Step
+    - 0 : Smoothstep
+  - To change nodes : Tools → SGVariablesExtraFeatures → Rebind Node Bindings
+- To edit keybindings : Edit → Shortcuts (search for SGVariables)
   - Note, try to avoid conflicts with [SG's hotkeys](https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts) (mainly A, F and O) as those can't be rebound
 
 ### Setup:

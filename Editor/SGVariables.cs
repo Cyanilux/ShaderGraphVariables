@@ -13,34 +13,37 @@ Author : Cyanilux (https://twitter.com/Cyanilux)
 Github Repo : https://github.com/Cyanilux/ShaderGraphVariables
 
 Main Feature :
-	- Adds "Register Variable" and "Get Variable" nodes (SubGraphs technically)
-		If the TextField in both nodes is the same, it creates an invisible connection/wire/edge
-		between them. The variables are **local to the graph** - they won't be shared between graphs or subgraphs.
-	- It doesn't alter the SG file (except for editing the node's "synonyms" field,
-		which is serialized, but isn't used in-graph anyway - only for nodes in the Add Node menu).
-		If the tool is removed the graph should still load, However it does 
-		use a few SubGraphs and if they don't exist you'll need to remove those nodes,
-		reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
+	- Adds Register Variable and Get Variable nodes to Shader Graph, allowing you to link sections of a graph without connection wires.
+		- These nodes (technically subgraphs) include a TextField where you can enter a variable name (not case sensitive).
+		- They automatically link up with invisible connections/wires/edges.
+		- These variables are local to the graph - they won't be shared between other graphs or subgraphs.
+	- Supports Vector and Float types.
+		- Vector2/3 will be promoted to Vector4. After Get Variable, can Split and re-Combine after if required.
+		- If a float is connected the port will automatically change. However note that DynamicVector/DynamicValue slots (used by most math nodes)
+		  currently default to the Vector4 port instead. If you require float, put the value through a Float node before connecting.
+	- The variable names are serialized using the node's "synonyms" field, which is unused by the graph (only used for nodes in the Add Node menu).
+	  If the tool is removed the graph should still load correctly. However it does use a few SubGraphs and if they don't exist you'll need to 
+	  remove those nodes, reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
 
 Extra Features : (see ExtraFeatures.cs for more info)
 	- Group Colors (Right-click group name)
 	- 'Port Swap' Hotkey (Default : S)
 	- 'Add Node' Hotkeys (Default : Alpha Number keys, 1 to 0)
-		- To change nodes : Tools > SGVariablesExtraFeatures > Rebind Node Bindings
+		- To change nodes : Tools → SGVariablesExtraFeatures → Rebind Node Bindings
 
-	- To edit keybindings : Edit > Shortcuts (search for SGVariables)
+	- To edit keybindings : Edit → Shortcuts (search for SGVariables)
 		- Note, try to avoid conflicts with SG's hotkeys (mainly A, F and O) as those can't be rebound
 		- https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts
 
 Setup:
-	- Put this file in an Editor folder (or install as Package via git url)
-	- Make sure the 'Register Variable' and 'Get Variable' SubGraphs are included in the project too
+	- Install via Package Manager → Add package via git URL : https://github.com/Cyanilux/ShaderGraphVariables.git
+	- Alternatively, download and put the folder in your Assets
 
 Usage : 
-	1) Add Node > Register Variable
+	1) Add Node → Register Variable
 		- The node has a text field in the place of it's output port where you can type a variable name.
 		- Attach a Float/Vector to the input port.
-	2) Add Node > Get Variable
+	2) Add Node → Get Variable
 		- Again, it has a text field but this time for the input port. Type the same variable name
 		- Variable names aren't case sensitive. "Example" would stil link to "EXAMPLE" or "ExAmPlE" etc.
 		- When the variable name matches, the in-line input port value (e.g. (0,0,0,0)) should disappear and the preview will change.
@@ -52,8 +55,7 @@ Known Issues :
 		if fragment-only nodes are used by the variable (e.g. cannot map expression to vs_5_0 instruction set)
 	- If a node uses a DynamicVector/DynamicValue slot (Most math nodes) it will default to Vector4.
 		If you want Float, pass the value through the Float node before connecting!
-		(I tried to fix this but it introduced a possibly worse issue, where if the dynamic port is
-		already connected and changes type, it doesn't update the Register Variable node. Need to look into it more)
+	- Got an issue, check : https://github.com/Cyanilux/ShaderGraphVariables/issues, if it's not there, add it!
 */
 
 namespace Cyan {
@@ -63,29 +65,42 @@ namespace Cyan {
 
 		// Debug ----------------------------------------------
 
-		internal static bool debugMessages 			= true;
+		internal static bool debugMessages 				= false;
 
-		private static bool disableTool 			= false;
-		private static bool disableVariableNodes 	= false;
-		private static bool disableExtraFeatures 	= false;
-		private static bool debugDontHidePorts 		= false;
+		private static bool disableTool 				= false;
+		private static bool disableVariableNodes 		= false;
+		private static bool disableExtraFeatures 		= false;
+		private static bool debugPutTextFieldAboveNode 	= false;
+		private static bool debugDontHideEdges 			= false;
 
 		//	----------------------------------------------------
 
 		// Sorry if the code is badly organised~
 
-		// TODO Optimise reflection code
-
+		// Sources
 		// https://github.com/Unity-Technologies/Graphics/tree/master/com.unity.shadergraph/Editor
 		// https://github.com/Unity-Technologies/UnityCsReference/tree/master/Modules/GraphViewEditor
 
 		private static float initTime;
+		private static bool isEnabled;
 
 		static SGVariables() {
 			if (disableTool) return;
+			Start();
+		}
+
+		public static void Start() {
+			if (isEnabled) return;
 			initTime = Time.realtimeSinceStartup;
 			EditorApplication.update += CheckForGraphs;
 			Undo.undoRedoPerformed += OnUndoRedo;
+			isEnabled = true;
+		}
+
+		public static void Stop() {
+			EditorApplication.update -= CheckForGraphs;
+			Undo.undoRedoPerformed -= OnUndoRedo;
+			isEnabled = false;
 		}
 
 		internal static EditorWindow sgWindow;
@@ -118,14 +133,15 @@ namespace Cyan {
 					prev = focusedWindow;
 				}
 
-				if (!disableVariableNodes) UpdateVariableNodes();
-				if (!disableExtraFeatures) ExtraFeatures.UpdateExtraFeatures();
-				loadVariables = false;
+				if (graphView != null) {
+					if (!disableVariableNodes) UpdateVariableNodes();
+					if (!disableExtraFeatures) ExtraFeatures.UpdateExtraFeatures();
+					loadVariables = false;
+				}
 			}
 		}
 
 		#region SGVariables
-
 		private static List<Port> editedPorts = new List<Port>();
 
 		private static void OnUndoRedo() {
@@ -164,19 +180,19 @@ namespace Cyan {
 
 						if (connectedOutput != null) {
 							if (GetPortType(connectedOutput).Contains("Vector1")) {
-								portType = NodePortType.Vector1;
+								portType = NodePortType.Float;
 							}
 						}
 						if (connectedOutputF != null) {
 							if (GetPortType(connectedOutputF).Contains("Vector1")) {
-								portType = NodePortType.Vector1;
+								portType = NodePortType.Float;
 							}
-						}						
-	
+						}
+
 						SetNodePortType(node, portType);
 
-						if (connectedOutput == null && connectedOutputF == null){
-						}else if (connectedOutput == null || connectedOutputF == null){
+						if (connectedOutput == null && connectedOutputF == null) {
+						} else if (connectedOutput == null || connectedOutputF == null) {
 							// Only one of the ports is connected.
 							// This can happen if node was created while dragging an edge from an output port
 							// We need to make sure both are connected :
@@ -195,26 +211,18 @@ namespace Cyan {
 						Port connectedInput = GetConnectedPort(outputVector);
 						Port connectedInputF = GetConnectedPort(outputFloat);
 						if ((connectedInput != null && !connectedInput.node.title.Equals("Get Variable")) ||
-							(connectedInputF != null && !connectedInputF.node.title.Equals("Get Variable"))){
+							(connectedInputF != null && !connectedInputF.node.title.Equals("Get Variable"))) {
 							// Not allowed to connect to the inputs of Register Variable node
 							// (unless it's the Get Variable node, which is connected automatically)
 							// This can happen if node was created while dragging an edge from an input port
 							DisconnectAllOutputs(node);
 						}
 
-						// Register methods to port.OnConnect / port.OnDisconnect
-						// (is internal so we use reflection)
+						// Register methods to port.OnConnect / port.OnDisconnect, (is internal so we use reflection)
 						inputPorts.ForEach((Port port) => {
-							// internal Action<Port> OnConnect;
-							FieldInfo onConnectField = typeof(Port).GetField("OnConnect", bindingFlags);
-							FieldInfo onDisconnectField = typeof(Port).GetField("OnDisconnect", bindingFlags);
-							var onConnect = (Action<Port>)onConnectField.GetValue(port);
-							var onDisconnect = (Action<Port>)onDisconnectField.GetValue(port);
-
-							onConnectField.SetValue(port, onConnect + OnRegisterNodeInputPortConnected);
-							onDisconnectField.SetValue(port, onDisconnect + OnRegisterNodeInputPortDisconnected);
+							RegisterPortDelegates(port, OnRegisterNodeInputPortConnected, OnRegisterNodeInputPortDisconnected);
 						});
-						// If this breaks an alternative is to just check the ports each frame for different types
+						// If this breaks, an alternative is to just check the ports each frame for different types
 
 					} else {
 						// Register Variable Update
@@ -230,7 +238,7 @@ namespace Cyan {
 						Action<Port> portAction = (Port output) => {
 							foreach (var edge in output.connections) {
 								if (edge.input.node.title.Equals("Get Variable")) {
-									if (edge.visible) edge.visible = false;
+									if (edge.visible && !debugDontHideEdges) edge.visible = false;
 								}
 							}
 						};
@@ -240,7 +248,7 @@ namespace Cyan {
 						portAction = (Port input) => {
 							foreach (var edge in input.connections) {
 								if (edge.input != inputPort) {
-									if (edge.visible) edge.visible = false;
+									if (edge.visible && !debugDontHideEdges) edge.visible = false;
 								}
 							}
 						};
@@ -265,7 +273,7 @@ namespace Cyan {
 						var outputPorts = GetOutputPorts(node);
 						Port outputVector = outputPorts.AtIndex(0);
 						Port outputFloat = outputPorts.AtIndex(1);
-						
+
 						// If both output ports are visible, do setup :
 						// (as Register Variable node may trigger it first)
 						if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
@@ -275,7 +283,7 @@ namespace Cyan {
 
 						Port connectedInputF = GetConnectedPort(outputFloat);
 						NodePortType portType = GetNodePortType(node);
-						if (connectedInputF != null && portType == NodePortType.Vector4){
+						if (connectedInputF != null && portType == NodePortType.Vector4) {
 							// Something is connected to the Float port, when the type is Vector
 							// This can happen if node was created while dragging an edge from an input port
 							MoveAllOutputs(node, outputFloat, outputVector);
@@ -312,10 +320,10 @@ namespace Cyan {
 				}
 			};
 
-			if (graphView != null) graphView.nodes.ForEach(nodeAction);
+			graphView.nodes.ForEach(nodeAction);
 		}
 
-		private static void HandlePortUpdates(){
+		private static void HandlePortUpdates() {
 			for (int i = editedPorts.Count - 1; i >= 0; i--) {
 				Port port = editedPorts[i];
 				Node node = port.node;
@@ -324,8 +332,6 @@ namespace Cyan {
 					editedPorts.RemoveAt(i);
 					continue;
 				}
-
-				Debug.Log("CHECKING editedPort");
 
 				Port outputConnectedToInput = GetConnectedPort(port);
 				if (outputConnectedToInput != null) {
@@ -353,7 +359,7 @@ namespace Cyan {
 
 						NodePortType portType = NodePortType.Vector4;
 						if (connectedSlotType.Contains("Vector1")) {
-							portType = NodePortType.Vector1;
+							portType = NodePortType.Float;
 						}
 						/*
 						else if (connectedSlotType.Contains("DynamicVector") || connectedSlotType.Contains("DynamicValue")){
@@ -372,15 +378,16 @@ namespace Cyan {
 						- While this works, it introduces a problem where, if we connect a Dynamic port the type changes correctly,
 							but then if we trigger the Dynamic port to change type, it doesn't trigger the port Connect/Disconnect
 							so the type doesn't change! It does switch type when the graph is reloaded but also kinda bugged.
-						- Unsure how to fix this, but it's also easier just defaulting to Vector4 and if the user wants Float, 
-							pass it through a Float node first!
+						- I may be able to fix this further by registering the inputs on the previous node (outputConnectedToInput.node)
+							to the Connect/Disconnect events to listen if the type changes...
+						- But it's also easier just defaulting to Vector4 and if the user really wants Float, pass it through a Float node first!
 						*/
 
-						Debug.Log("TYPE : " + portType);
+						//Debug.Log("TYPE : " + portType);
 
-						if (inputSlotType.Contains("Vector4") && portType == NodePortType.Vector1) {
+						if (inputSlotType.Contains("Vector4") && portType == NodePortType.Float) {
 							// If port is currently Vector4, but a Float has been attached
-							SetNodePortType(node, NodePortType.Vector1);
+							SetNodePortType(node, NodePortType.Float);
 						} else if (inputSlotType.Contains("Vector1") && portType == NodePortType.Vector4) {
 							// If port is currently Float, but a Vector2/3/4 has been attached
 							SetNodePortType(node, NodePortType.Vector4);
@@ -402,7 +409,6 @@ namespace Cyan {
 				editedPorts.RemoveAt(i);
 			}
 		}
-
 		#endregion
 
 		#region UIElements
@@ -417,7 +423,7 @@ namespace Cyan {
 			// Setup Text Field 
 			TextField field = new TextField();
 			field.style.position = Position.Absolute;
-			if (debugDontHidePorts) {
+			if (debugPutTextFieldAboveNode) {
 				field.style.top = -35; // put field above (debug)
 			} else {
 				field.style.top = 39; // put field over first input/output port
@@ -425,12 +431,10 @@ namespace Cyan {
 			field.StretchToParentWidth();
 			// Note : Later we also adjust margins so it doesn't hide the required ports
 
-			//node.ElementAt(0).ElementAt(1).ElementAt(1).style.minHeight = 32;
-
 			var textInput = field.ElementAt(0);
 			textInput.style.fontSize = 25;
 			textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
-			//textInput.style.borderTopColor = new Color(0.13f, 0.13f, 0.13f); // #656565
+			//textInput.style.borderTopColor = new Color(0.13f, 0.13f, 0.13f);
 
 			field.value = variableName;
 
@@ -481,8 +485,10 @@ namespace Cyan {
 		#endregion
 
 		#region Get Input/Output Ports
-		enum NodePortType {
-			Vector4, Vector1
+		// Register/Get Variable nodes support these types, should match port order
+		private enum NodePortType {
+			Vector4, // also used for Vector2, Vector3 and DynamicVector, DynamicValue
+			Float
 		}
 
 		public static UQueryState<Port> GetInputPorts(Node node) {
@@ -494,7 +500,7 @@ namespace Cyan {
 				UQueryState<Port> inputPorts = node.inputContainer.Query<Port>().Build();
 				node.inputContainer.userData = inputPorts;
 				inputPorts.ForEach((Port port) => {
-					port.userData = GetPortTypeReflection(port);
+					port.userData = GetMaterialSlotTypeReflection(port);
 				});
 				return inputPorts;
 			}
@@ -510,7 +516,7 @@ namespace Cyan {
 				UQueryState<Port> outputPorts = node.outputContainer.Query<Port>().Build();
 				node.outputContainer.userData = outputPorts;
 				outputPorts.ForEach((Port port) => {
-					port.userData = GetPortTypeReflection(port);
+					port.userData = GetMaterialSlotTypeReflection(port);
 				});
 				return outputPorts;
 			}
@@ -544,38 +550,17 @@ namespace Cyan {
 				return (output == port) ? input : output;
 			}
 			return null;
-			/*
-			int n = 0;
-			Port p = null;
-			Edge brokenEdge = null;
-			foreach (Edge edge in port.connections) {
-				n++;
-				if (edge.parent == null) {
-					// weird broken edge?
-					brokenEdge = edge;
-					continue;
-				}
-				p = edge.output;
-			}
-
-			// whyyy
-			if (brokenEdge != null) {
-				if (debugMessages) Debug.LogWarning("Broken Edge???");
-				brokenEdge.output.Disconnect(brokenEdge);
-				port.Disconnect(brokenEdge);
-			}
-
-			if (debugMessages) Debug.Log("port " + port.portName + "has " + n + "connections, returned " + ((p != null) ? p.portName : "null"));
-			return p;*/
 		}
 
-		private static string GetPortType(Port port) {
+		/// <summary>
+		/// Returs a string of the Type of SG MaterialSlot the port uses (e.g. "UnityEditor.ShaderGraph.Vector1MaterialSlot")
+		/// </summary>
+		public static string GetPortType(Port port) {
 			string type = (string)port.userData;
 			if (type == null) {
-				//if (debugMessages) Debug.LogWarning("Port type was null?");
-				// Seems this gets reset when a new edge is connected
-				// Not a big deal, just wanted to avoid doing reflection every frame
-				type = GetPortTypeReflection(port);
+				// Cache in userData so next time if the port is used we don't need to bother obtaining it again
+				// (though note this will reset if an undo occurs)
+				type = GetMaterialSlotTypeReflection(port);
 				port.userData = type;
 			}
 			return type;
@@ -599,13 +584,13 @@ namespace Cyan {
 				if (!IsPortHidden(inputVector)) {
 					currentPortType = NodePortType.Vector4;
 				} else if (!IsPortHidden(inputFloat)) {
-					currentPortType = NodePortType.Vector1;
+					currentPortType = NodePortType.Float;
 				}
 			} else {
 				if (!IsPortHidden(outputVector)) {
 					currentPortType = NodePortType.Vector4;
 				} else if (!IsPortHidden(outputFloat)) {
-					currentPortType = NodePortType.Vector1;
+					currentPortType = NodePortType.Float;
 				}
 			}
 			return currentPortType;
@@ -639,7 +624,7 @@ namespace Cyan {
 					ShowOutputPort(outputVector);
 					if (typeChanged) MoveAllOutputs(node, outputFloat, outputVector);
 				}
-			} else if (portType == NodePortType.Vector1) {
+			} else if (portType == NodePortType.Float) {
 				if (isRegisterNode) {
 					ShowInputPort(inputFloat);
 				} else {
@@ -676,7 +661,6 @@ namespace Cyan {
 			//DisconnectAllInputs(port.node);
 			editedPorts.Add(port);
 		}
-
 		#endregion
 
 		#region Register/Get Variables
@@ -691,7 +675,6 @@ namespace Cyan {
 			previousValue = previousValue.Trim().ToUpper();
 			newValue = newValue.Trim();
 			string key = newValue.ToUpper();
-			object materialNode = NodeToSGMaterialNode(node);
 
 			bool previousKey = !previousValue.Equals("");
 			bool newKey = !key.Equals("");
@@ -724,17 +707,13 @@ namespace Cyan {
 				} else {
 					if (debugMessages) Debug.Log("Attempted to Register " + key + " but it's already in use!");
 
-					object objectId = abstractMaterialNodeType.GetProperty("objectId", bindingFlags).GetValue(materialNode);
-					graphDataType.GetMethod("AddValidationError").Invoke(graphData, new object[]{
-						objectId, "Variable Key is already in use!",
-						ShaderCompilerMessageSeverity.Error
-					});
+					ShowValidationError(node, "Variable Key is already in use!");
 
 					SetSerializedVariableKey(node, "");
 					return;
 				}
 			} else {
-				graphDataType.GetMethod("ClearErrorsForNode").Invoke(graphData, new object[] { materialNode });
+				ClearErrorsForNode(node);
 			}
 
 			// Add new key to Dictionary
@@ -743,7 +722,7 @@ namespace Cyan {
 				variables.Add(key, node);
 			}
 
-			// Allow key to be serialised
+			// Allow key to be serialised (as user typed, not upper-case version)
 			SetSerializedVariableKey(node, newValue);
 
 			var outputPorts = GetOutputPorts(node);
@@ -756,7 +735,6 @@ namespace Cyan {
 						SetNodePortType(edge.input.node, NodePortType.Vector4);
 					}
 				}
-				//DisconnectAllEdges(node, outputPort);
 				DisconnectAllOutputs(node);
 			}
 
@@ -774,28 +752,29 @@ namespace Cyan {
 		/// Used on a Register Variable node to link it to all Get Variable nodes in the graph.
 		/// </summary>
 		private static List<Node> LinkToAllGetVariableNodes(string key, Node registerNode) {
-			// if (debugMessages) Debug.Log("LinkToAllGetVariableNodes("+key+")");
+			if (debugMessages) Debug.Log("LinkToAllGetVariableNodes("+key+")");
 
 			List<Node> linkedNodes = new List<Node>();
 			Action<Node> nodeAction = (Node n) => {
 				if (n.title.Equals("Get Variable")) {
 					string key2 = GetSerializedVariableKey(n).ToUpper();
 					if (key == key2) {
-						// Connect!
 						LinkRegisterToGetVariableNode(registerNode, n);
 						linkedNodes.Add(n);
 					}
 				}
 			};
+			
 			graphView.nodes.ForEach(nodeAction);
+			ValidateGraph();
 			return linkedNodes;
 		}
 
 		/// <summary>
-		/// Links each output port on the Register Variable node to the input on the Get Variable node
+		/// Links each output port on the Register Variable node to the input on the Get Variable node (does not ValidateGraph, call manually)
 		/// </summary>
 		private static void LinkRegisterToGetVariableNode(Node registerNode, Node getNode) {
-			if (debugMessages) Debug.Log("Linked Register -> Get");
+			//if (debugMessages) Debug.Log("Linked Register -> Get");
 			var outputPorts = GetOutputPorts(registerNode);
 			var inputPorts = GetInputPorts(getNode);
 			int portCount = 2;
@@ -805,7 +784,7 @@ namespace Cyan {
 			for (int i = 0; i < portCount; i++) {
 				Port outputPort = outputPorts.AtIndex(i);
 				Port inputPort = inputPorts.AtIndex(i);
-				Connect(outputPort, inputPort);
+				Connect(outputPort, inputPort, true);
 			}
 		}
 
@@ -819,6 +798,7 @@ namespace Cyan {
 			// Allow key to be serialised
 			SetSerializedVariableKey(node, key);
 
+			// Dictionary always uses upper-case version of key
 			key = key.ToUpper();
 
 			if (debugMessages) Debug.Log("Get " + key);
@@ -833,6 +813,7 @@ namespace Cyan {
 				// Link, Register Variable > Get Variable
 				DisconnectAllInputs(node);
 				LinkRegisterToGetVariableNode(varNode, node);
+				ValidateGraph();
 			} else {
 				// Key doesn't exist. If any inputs, disconnect them
 				DisconnectAllInputs(node);
@@ -844,11 +825,10 @@ namespace Cyan {
 		#endregion
 
 		#region Connect/Disconnect Edges
-
 		/// <summary>
 		/// Connects two ports with an edge
 		/// </summary>
-		public static Edge Connect(Port a, Port b) {
+		public static Edge Connect(Port a, Port b, bool noValidate = false) {
 			foreach (Edge bEdge in b.connections) {
 				foreach (Edge aEdge in a.connections) {
 					if (aEdge == bEdge) {
@@ -869,25 +849,15 @@ namespace Cyan {
 			};
 
 			// This connects the ports in terms of the Shader Graph Data
-			object sgEdge = ConnectReflection(edge);
+			object sgEdge = ConnectReflection(edge, noValidate);
 			if (sgEdge == null) {
 				// Oh no, something went wrong!
 				if (debugMessages) Debug.LogWarning("sgEdge was null! (This is bad as it'll break copying)");
 				// This can cause an error here when trying to copy the node :
 				// https://github.com/Unity-Technologies/Graphics/blob/3f3263397f0c880135b4f42d623f1510a153e20e/com.unity.shadergraph/Editor/Util/CopyPasteGraph.cs#L149
 
-				object materialNode = NodeToSGMaterialNode(edge.input.node);
-				object objectId = abstractMaterialNodeType.GetProperty("objectId", bindingFlags).GetValue(materialNode);
-				graphDataType.GetMethod("AddValidationError").Invoke(graphData, new object[]{
-					objectId, "Failed to Get Variable! Did you create a loop?",
-					ShaderCompilerMessageSeverity.Error
-				});
+				ShowValidationError(edge.input.node, "Failed to Get Variable! Did you create a loop?");
 				// Preview may also be incorrect if Register Variable node is float type here
-
-			} else {
-				// This attaches the VisualElement with the sg version of the Edge
-				// Important to be able to copy the node!
-				edge.userData = sgEdge;
 			}
 			return edge;
 		}
@@ -896,7 +866,13 @@ namespace Cyan {
 		/// Disconnects all edges from the specified node and port
 		/// </summary>
 		public static void DisconnectAllEdges(Node node, Port port) {
-			// This disconnects all outputs in port *visually*
+			// If already has no connections, don't bother continuing
+			int n = 0;
+			foreach (Edge edge in port.connections) {
+				n++;
+			}
+			if (n == 0) return;
+
 			/*
 			foreach (Edge edge in port.connections) {
 				if (port.direction == Direction.Input) {
@@ -905,30 +881,27 @@ namespace Cyan {
 					edge.input.Disconnect(edge);
 				}
 			}
+			// Unsure if I really need to disconnect the other end
+			// Currently doesn't seem to matter that much so leaving it out
+			// When we disconnect below in the reflection, SG triggers ValidateGraph
+			// which triggers CleanupGraph and removes "orphan" edges anyway
 			*/
 
-			int n = 0;
-			foreach (Edge edge in port.connections) {
-				n++;
-			}
-			if (n == 0) return;
-
+			// This disconnects all connections in port *visually*
 			port.DisconnectAll();
 
 			int index;
-			string methodName;
 			if (port.direction == Direction.Input) {
-				// The SubGraph input ports have an additional element grouped for when the input is empty, that shows the (0,0,0,0) thing
+				// The SubGraph input ports have an additional element grouped
+				// (for showing value when not connected, e.g. the (0,0,0,0) thing)
 				VisualElement parent = port.parent;
 				index = parent.parent.IndexOf(parent);
-				methodName = "GetInputSlots";
 			} else {
 				index = port.parent.IndexOf(port);
-				methodName = "GetOutputSlots";
 			}
 
-			// This disconnects all outputs in port in terms of the Shader Graph Data
-			DisconnectAllReflection(node, index, methodName);
+			// This disconnects all connections in port in terms of the Shader Graph Data
+			DisconnectAllReflection(node, index, port.direction);
 		}
 
 		/// <summary>
@@ -966,29 +939,52 @@ namespace Cyan {
 			// to the same inputs which can only have 1 edge, so it gets overridden
 
 			for (int i = 0; i < toConnect.Count; i++) {
-				Connect(toPort, toConnect[i]);
+				Connect(toPort, toConnect[i], true);
 			}
+			ValidateGraph();
 		}
 		#endregion
 
 		#region Reflection
 		// This probably isn't pretty.
-		internal const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
-		internal const BindingFlags bindingFlagsFlatten = BindingFlags.FlattenHierarchy | bindingFlags;
 
-		internal static Type materialGraphEditWindowType;
-		internal static Type userViewSettingsType;
-		internal static Type graphEditorViewType;
+		public static object graphData;
+
+		internal const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
 		internal static Type graphDataType;
-		internal static Type edgeConnectorListenerType;
 		internal static Type abstractMaterialNodeType;
-		internal static Type materialSlotType;
-		internal static Type IEdgeType;
 		internal static Type colorNodeType;
 
-		private static VisualElement graphEditorView;
-		public static object graphData;
-		//private static object edgeConnectorListener;
+		private static Type materialGraphEditWindowType;
+		private static Type graphEditorViewType;
+		private static Type materialSlotType;
+		private static Type IEdgeType;
+		private static Type listType_MaterialSlot;
+		private static Type listType_IEdge;
+
+		internal static FieldInfo synonymsField;
+
+		private static FieldInfo graphEditorViewField;
+		private static FieldInfo graphViewField;
+		private static FieldInfo graphDataField;
+		private static FieldInfo onConnectField;
+		private static FieldInfo onDisconnectField;
+
+		private static PropertyInfo shaderPortSlotProperty;
+		private static PropertyInfo materialSlotReferenceProperty;
+		private static PropertyInfo objectIdProperty;
+
+		private static MethodInfo connectMethod;
+		private static MethodInfo connectNoValidateMethod;
+		private static MethodInfo getInputSlots_MaterialSlot;
+		private static MethodInfo getOutputSlots_MaterialSlot;
+		private static MethodInfo getEdges;
+		private static MethodInfo removeEdge;
+		private static MethodInfo validateGraph;
+		private static MethodInfo addValidationError;
+		private static MethodInfo clearErrorsForNode;
+		private static MethodInfo removeNode;
 
 		public static Assembly sgAssembly;
 
@@ -996,7 +992,6 @@ namespace Cyan {
 			sgAssembly = Assembly.Load(new AssemblyName("Unity.ShaderGraph.Editor"));
 
 			materialGraphEditWindowType = sgAssembly.GetType("UnityEditor.ShaderGraph.Drawing.MaterialGraphEditWindow");
-			userViewSettingsType = sgAssembly.GetType("UnityEditor.ShaderGraph.Drawing.UserViewSettings");
 			abstractMaterialNodeType = sgAssembly.GetType("UnityEditor.ShaderGraph.AbstractMaterialNode");
 			materialSlotType = sgAssembly.GetType("UnityEditor.ShaderGraph.MaterialSlot");
 			IEdgeType = sgAssembly.GetType("UnityEditor.Graphing.IEdge");
@@ -1007,30 +1002,26 @@ namespace Cyan {
 		// VisualElement:  GraphEditorView   member: m_GraphView  ->
 		// GraphView(VisualElement):  MaterialGraphView   
 		public static GraphView GetGraphViewFromMaterialGraphEditWindow(EditorWindow win) {
-			if (materialGraphEditWindowType == null || userViewSettingsType == null) {
+			if (materialGraphEditWindowType == null) {
 				GetShaderGraphTypes();
 				if (materialGraphEditWindowType == null) return null;
 			}
 
-			FieldInfo visualElementField = materialGraphEditWindowType.GetField("m_GraphEditorView", bindingFlags);
-			graphEditorView = (VisualElement)visualElementField.GetValue(win);
+			if (graphEditorViewField == null)
+				graphEditorViewField = materialGraphEditWindowType.GetField("m_GraphEditorView", bindingFlags);
+
+			object graphEditorView = graphEditorViewField.GetValue(win);
 			if (graphEditorView == null) return null;
-			graphEditorViewType = graphEditorView.GetType();
+			if (graphEditorViewType == null) {
+				graphEditorViewType = graphEditorView.GetType();
+				graphViewField = graphEditorViewType.GetField("m_GraphView", bindingFlags);
+				graphDataField = graphEditorViewType.GetField("m_Graph", bindingFlags);
+			}
 
 			// Get Graph View
-			FieldInfo graphViewField = graphEditorViewType.GetField("m_GraphView", bindingFlags);
 			GraphView graphView = (GraphView)graphViewField.GetValue(graphEditorView);
-
-			FieldInfo graphDataField = graphEditorViewType.GetField("m_Graph", bindingFlags);
 			graphData = graphDataField.GetValue(graphEditorView);
-			graphDataType = graphData.GetType();
-
-			// EdgeConnectorListener
-			/*
-			FieldInfo edgeConnectorListenerField = graphEditorViewType.GetField("m_EdgeConnectorListener", bindingFlags);
-			edgeConnectorListener = edgeConnectorListenerField.GetValue(graphEditorView);
-			edgeConnectorListenerType = edgeConnectorListener.GetType();
-			*/
+			if (graphDataType == null) graphDataType = graphData.GetType();
 
 			return graphView;
 		}
@@ -1050,7 +1041,7 @@ namespace Cyan {
 			// We store values in the node's "synonyms" field
 			// Nodes usually use it for the Search Box so it can display "Float" even if the user types "Vector 1"
 			// But it's also serialized in the actual Shader Graph file where it then isn't really used, so it's mine now!~
-			FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
+			if (synonymsField == null) synonymsField = abstractMaterialNodeType.GetField("synonyms");
 			return (string[])synonymsField.GetValue(materialNode);
 		}
 
@@ -1058,15 +1049,13 @@ namespace Cyan {
 		/// Sets the values stored in synonyms (serialized by SG). Input should be NodeSGMaterialNode(node)
 		/// </summary>
 		public static void SetSerializedValues(object materialNode, string[] values) {
-			FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
+			if (synonymsField == null) synonymsField = abstractMaterialNodeType.GetField("synonyms");
 			synonymsField.SetValue(materialNode, values);
 		}
 
 		private static string GetSerializedVariableKey(Node node) {
 			object materialNode = NodeToSGMaterialNode(node);
 			if (materialNode != null) {
-				//FieldInfo synonymsField = materialNode.GetType().GetField("synonyms");
-				//string[] synonyms = (string[])synonymsField.GetValue(materialNode);
 				string[] synonyms = GetSerializedValues(materialNode);
 				if (synonyms != null && synonyms.Length > 0) {
 					return synonyms[0];
@@ -1077,79 +1066,153 @@ namespace Cyan {
 
 		private static void SetSerializedVariableKey(Node node, string key) {
 			object materialNode = NodeToSGMaterialNode(node);
-			//FieldInfo synonymsField = abstractMaterialNodeType.GetField("synonyms");
-			//synonymsField.SetValue(materialNode, new string[] { key });
-			SetSerializedValues(materialNode, new string[]{ key });
+			SetSerializedValues(materialNode, new string[] { key });
 		}
 
-		private static string GetPortTypeReflection(Port port) {
+		private static string GetMaterialSlotTypeReflection(Port port) {
 			return GetMaterialSlot(port).GetType().ToString();
 		}
 
 		internal static object GetMaterialSlot(Port port) {
 			// ShaderPort -> MaterialSlot "slot"
-			var v = port.GetType().GetProperty("slot");
-			return v.GetValue(port);
+			if (shaderPortSlotProperty == null) shaderPortSlotProperty = port.GetType().GetProperty("slot");
+			return shaderPortSlotProperty.GetValue(port);
 		}
 
 		private static object GetSlotReference(object materialSlot) {
 			// MaterialSlot -> SlotReference "slotReference"
-			var slotRef = materialSlot.GetType().GetProperty("slotReference");
-			return slotRef.GetValue(materialSlot);
+			if (materialSlotReferenceProperty == null)
+				materialSlotReferenceProperty = materialSlot.GetType().GetProperty("slotReference");
+			return materialSlotReferenceProperty.GetValue(materialSlot);
 		}
 
-		private static object ConnectReflection(Edge edge) {
-			// This works, but registers some Undo events which we don't really want
-			//MethodInfo onDrop = edgeConnectorListenerType.GetMethod("OnDrop", bindingFlags);
-			//onDrop.Invoke(edgeConnectorListener, new object[] { graphView, edge });
-
+		private static object ConnectReflection(Edge edge, bool noValidate) {
 			// GraphData.Connect(SlotReference fromSlotRef, SlotReference toSlotRef)
-			// GetMethod("ConnectNoValidate", bindingFlags)
-			var sgEdge = graphDataType.GetMethod("Connect").Invoke(graphData, new object[] {
+			if (connectMethod == null)
+				connectMethod = graphDataType.GetMethod("Connect");
+			if (connectNoValidateMethod == null)
+				connectNoValidateMethod = graphDataType.GetMethod("ConnectNoValidate", bindingFlags);
+
+			MethodInfo method = (noValidate) ? connectNoValidateMethod : connectMethod;
+			var sgEdge = method.Invoke(graphData, new object[] {
 				GetSlotReference(GetMaterialSlot(edge.output)),
 				GetSlotReference(GetMaterialSlot(edge.input))
 			});
 
 			// Connect returns type of UnityEditor.Graphing.Edge
 			// https://github.com/Unity-Technologies/Graphics/blob/master/com.unity.shadergraph/Editor/Data/Implementation/Edge.cs
-
 			// It needs to be stored in the userData of the GraphView's Edge VisualElement (in order to support copying nodes)
+			edge.userData = sgEdge;
 
 			// Note, it can be null (which will cause an error when trying to copy it) :
 			// if either slotRef.node is null
 			// if both nodes belong to different graphs
-			// if the outputNode is already connected to nodes connected after inputNode (prevent infinite loops)
+			// if the outputNode is already connected to nodes connected after inputNode (prevents infinite loops)
 			// if slot cannot be found in node using slotRef.slotId
-			// if both slots are outputs
+			// if both slots are outputs (strangely it doesn't seem to check for both being inputs?)
 			return sgEdge;
 		}
 
-		// This feels *super* hacky, but it works~
-		private static void DisconnectAllReflection(Node node, int portIndex, string temp) {
-			// node.userData is AbstractMaterialNode
-			object abstractMaterialNode = node.userData;
+		private static void DisconnectAllReflection(Node node, int portIndex, Direction direction) {
+			object abstractMaterialNode = NodeToSGMaterialNode(node);
+
+			// This all feels pretty hacky, but it works~
 
 			// Reflection for : AbstractMaterialNode.GetInputSlots(List<MaterialSlot> list) / GetOutputSlots(List<MaterialSlot> list)
-			var listType = typeof(List<>);
-			var constructedListType = listType.MakeGenericType(materialSlotType);
-			var listInstance = (IList)Activator.CreateInstance(constructedListType);
-			MethodInfo getInputSlots = abstractMaterialNodeType.GetMethod(temp);
-			getInputSlots.MakeGenericMethod(materialSlotType).Invoke(abstractMaterialNode, new object[] { listInstance });
+			if (getInputSlots_MaterialSlot == null) {
+				MethodInfo getInputSlots = abstractMaterialNodeType.GetMethod("GetInputSlots");
+				getInputSlots_MaterialSlot = getInputSlots.MakeGenericMethod(materialSlotType);
+			}
+			if (getOutputSlots_MaterialSlot == null) {
+				MethodInfo getOutputSlots = abstractMaterialNodeType.GetMethod("GetOutputSlots");
+				getOutputSlots_MaterialSlot = getOutputSlots.MakeGenericMethod(materialSlotType);
+			}
+			if (listType_MaterialSlot == null)
+				listType_MaterialSlot = typeof(List<>).MakeGenericType(materialSlotType);
 
-			object slot = listInstance[portIndex]; // Type : (MaterialSlot)
+			IList materialSlotList = (IList)Activator.CreateInstance(listType_MaterialSlot);
+			MethodInfo method = (direction == Direction.Input) ? getInputSlots_MaterialSlot : getOutputSlots_MaterialSlot;
+			method.Invoke(abstractMaterialNode, new object[] { materialSlotList });
+
+			object slot = materialSlotList[portIndex]; // Type : (MaterialSlot)
+			object slotReference = GetSlotReference(slot);
 
 			// Reflection for : graphData.GetEdges(SlotReference slot, List<IEdge> list)
-			var constructedListType2 = listType.MakeGenericType(IEdgeType);
-			var listInstance2 = (IList)Activator.CreateInstance(constructedListType2);
-			object slotReference = slot.GetType().GetProperty("slotReference").GetValue(slot);
-			graphDataType.GetMethod("GetEdges", new Type[] { slotReference.GetType(), constructedListType2 })
-				.Invoke(graphData, new object[] { slotReference, listInstance2 });
+			if (listType_IEdge == null)
+				listType_IEdge = typeof(List<>).MakeGenericType(IEdgeType);
+			if (getEdges == null)
+				getEdges = graphDataType.GetMethod("GetEdges", new Type[] { slotReference.GetType(), listType_IEdge });
+
+			IList edgeList = (IList)Activator.CreateInstance(listType_IEdge);
+			getEdges.Invoke(graphData, new object[] { slotReference, edgeList });
 
 			// For each edge, remove it!
-			foreach (object edge in listInstance2) {
-				// Reflection for : graphData.RemoveEdge(IEdge edge)
-				graphDataType.GetMethod("RemoveEdge").Invoke(graphData, new object[] { edge });
+			// Reflection for : graphData.RemoveEdge(IEdge edge)
+			// Note : changed to RemoveEdgeNoValidate so it doesn't try to ValidateGraph for every removed edge
+			// RemoveEdgeNoValidate(IEdge e, bool reevaluateActivity = true)
+			if (removeEdge == null)
+				removeEdge = graphDataType.GetMethod("RemoveEdgeNoValidate", bindingFlags);
+
+			foreach (object edge in edgeList) {
+				removeEdge.Invoke(graphData, new object[] { edge, true });
 			}
+
+			// Now manually trigger ValidateGraph
+			ValidateGraph();
+		}
+
+		/// <summary>
+		/// Calls graphData.ValidateGraph() (via Reflection)
+		/// </summary>
+		public static void ValidateGraph(){
+			if (validateGraph == null)
+				validateGraph = graphDataType.GetMethod("ValidateGraph");
+
+			validateGraph.Invoke(graphData, null);
+		}
+
+		/// <summary>
+		/// Registers to the port's OnConnect and OnDisconnect delegates (via Reflection as they are internal)
+		/// </summary>
+		public static void RegisterPortDelegates(Port port, Action<Port> OnConnect, Action<Port> OnDisconnect) {
+			// internal Action<Port> OnConnect / OnDisconnect;
+			if (onConnectField == null)
+				onConnectField = typeof(Port).GetField("OnConnect", bindingFlags);
+			if (onDisconnectField == null)
+				onDisconnectField = typeof(Port).GetField("OnDisconnect", bindingFlags);
+
+			Action<Port> onConnect = (Action<Port>)onConnectField.GetValue(port);
+			Action<Port> onDisconnect = (Action<Port>)onDisconnectField.GetValue(port);
+
+			// OnRegisterNodeInputPortConnected, OnRegisterNodeInputPortDisconnected
+			onConnectField.SetValue(port, onConnect + OnConnect);
+			onDisconnectField.SetValue(port, onDisconnect + OnDisconnect);
+		}
+
+		public static void ShowValidationError(Node node, string text) {
+			if (objectIdProperty == null)
+				objectIdProperty = abstractMaterialNodeType.GetProperty("objectId", bindingFlags);
+			if (addValidationError == null)
+				addValidationError = graphDataType.GetMethod("AddValidationError");
+
+			object materialNode = NodeToSGMaterialNode(node);
+			object objectId = objectIdProperty.GetValue(materialNode);
+			addValidationError.Invoke(graphData, new object[]{
+				objectId, text, ShaderCompilerMessageSeverity.Error
+			});
+		}
+
+		public static void ClearErrorsForNode(Node node) {
+			if (clearErrorsForNode == null)
+				clearErrorsForNode = graphDataType.GetMethod("ClearErrorsForNode");
+
+			object materialNode = NodeToSGMaterialNode(node);
+			clearErrorsForNode.Invoke(graphData, new object[] { materialNode });
+		}
+		
+		public static void RemoveNode(Node node){
+			if (removeNode == null) removeNode = graphDataType.GetMethod("RemoveNode", bindingFlags);
+			removeNode.Invoke(graphData, new object[] { NodeToSGMaterialNode(node) });
 		}
 		#endregion
 	}
