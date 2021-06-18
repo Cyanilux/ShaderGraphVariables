@@ -13,7 +13,9 @@
 - The variable names are serialized using the node's "synonyms" field, which is unused by the graph (only used for nodes in the Add Node menu). If the tool is removed the graph should still load correctly. However it does use a few SubGraphs and if they don't exist you'll need to remove those nodes, reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
 - For setup & usage instructions, see below
 
-**Tested with Unity 2020.3.0f1, Shader Graph v10.3.2** (URP, but should work in HDRP too)
+- Requires Shader Graph v10+
+- **Tested with Unity 2020.3.0f1, Shader Graph v10.3.2** (URP, but should work in HDRP too)
+- Should also work with Unity 2021.1 / SG v11
 
 If there's any errors/problems, let me know by opening an [issue](https://github.com/Cyanilux/ShaderGraphVariables/issues) (if one doesn't already exist).
 
