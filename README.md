@@ -50,6 +50,7 @@ If there's any errors/problems, let me know by opening an [issue](https://github
 ### Setup:
 - Install via Package Manager → Add package via git URL : `https://github.com/Cyanilux/ShaderGraphVariables.git`
 - Alternatively, download and put the folder in your Assets
+- Note these methods won't update automatically, so please check back if you have any problems. If there's any important fixes or additional features added, I'll likely post about it on [twitter](https://twitter.com/Cyanilux) too!
 
 ### Usage : 
 1) Add Node → Register Variable

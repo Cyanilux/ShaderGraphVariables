@@ -49,7 +49,7 @@ namespace Cyan {
 	public class ExtraFeatures {
 
 		#region Extra Features (Swap Command)
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Swap Ports On Selected Nodes _s")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Swap Ports On Selected Nodes _s")]
 		private static void SwapPortsCommand() {
 			if (graphView == null) return;
 			if (debugMessages) Debug.Log("Swap Ports");
@@ -104,7 +104,16 @@ namespace Cyan {
 		#endregion
 
 		#region Extra Features (Add Node Commands)
-		private static Type[] addNodeTypes = new Type[10];
+		private class AddNodeType{
+			public Type type;
+			public string subgraphGUID; // guid if type is UnityEditor.ShaderGraph.SubGraphNode
+
+			public AddNodeType(Type type, string subgraphGUID){
+				this.type = type;
+				this.subgraphGUID = subgraphGUID;
+			}
+		}
+		private static AddNodeType[] addNodeTypes = new AddNodeType[10];
 		private static readonly string[] addNodeDefaults = new string[]{
 			"Add",
 			"Subtract",
@@ -121,7 +130,7 @@ namespace Cyan {
 		#region Extra Features (Rebind)
 		private class RebindWindow : EditorWindow {
 
-			private string shortcutID = "Main Menu/Tools/SGVariablesExtraFeatures/Commands/Add Node ";
+			private string shortcutID = "Main Menu/Tools/SGVariables/ExtraFeatures/Commands/Add Node ";
 			private string[] shortcuts;
 			private string[] values;
 
@@ -144,72 +153,91 @@ namespace Cyan {
 			}
 
 			void OnGUI() {
-				GUILayout.Label("Add Node Bindings", EditorStyles.boldLabel);
-				GUILayout.Label("Note : You can also change the hotkeys in Edit -> Shortcuts, search for SGVariables");
-				GUILayout.Label("The values here should match the class used by a node. Should be the same as the node name, without spaces. It can't add SubGraphs. Probably won't support pipeline-specific nodes, only searches the UnityEngine.ShaderGraph namespace.");
+				EditorGUILayout.LabelField("Add Node Bindings", EditorStyles.boldLabel);
+				EditorGUILayout.LabelField("Note : You can also change the hotkeys in Edit -> Shortcuts, search for SGVariables", EditorStyles.wordWrappedLabel);
+				EditorGUILayout.LabelField("The values here should match the class used by a node. Should be the same as the node name, without spaces. "
+					+ "Won't support pipeline-specific nodes, only searches the UnityEngine.ShaderGraph namespace.", EditorStyles.wordWrappedLabel);
+				EditorGUILayout.LabelField("Also supports 'RegisterVariable' and 'GetVariable', for other SubGraphs use \"SubGraph(<guid>)\", "
+					+ "where guid is the string located at the top of the .meta file associated with the SubGraph.", EditorStyles.wordWrappedLabel);
 				for (int i = 0; i < 10; i++) {
 					EditorGUI.BeginChangeCheck();
 					string s = EditorGUILayout.TextField("Node Binding " + (i + 1) + " (" + shortcuts[i] + ")", values[i]);
 					if (EditorGUI.EndChangeCheck()) {
 						EditorPrefs.SetString("CyanSGVariables_Node" + (i + 1), System.Text.RegularExpressions.Regex.Replace(s, @"\s+", ""));
+						values[i] = s;
 						ClearTypes();
 					}
 				}
+				EditorGUILayout.LabelField("To reset to defaults, leave fields blank", EditorStyles.wordWrappedLabel);
 			}
 
 			private void ClearTypes() {
-				addNodeTypes = new Type[10];
+				addNodeTypes = new AddNodeType[10];
 			}
 		}
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Remap Node Bindings", false, 0)]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Remap Node Bindings", false, 0)]
 		private static void RebindNodes() {
 			RebindWindow window = (RebindWindow)EditorWindow.GetWindow(typeof(RebindWindow));
 			window.Show();
 		}
 		#endregion
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 1 _1")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 1 _1")]
 		private static void AddNodeCommand1() { AddNodeCommand(1); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 2 _2")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 2 _2")]
 		private static void AddNodeCommand2() { AddNodeCommand(2); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 3 _3")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 3 _3")]
 		private static void AddNodeCommand3() { AddNodeCommand(3); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 4 _4")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 4 _4")]
 		private static void AddNodeCommand4() { AddNodeCommand(4); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 5 _5")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 5 _5")]
 		private static void AddNodeCommand5() { AddNodeCommand(5); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 6 _6")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 6 _6")]
 		private static void AddNodeCommand6() { AddNodeCommand(6); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 7 _7")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 7 _7")]
 		private static void AddNodeCommand7() { AddNodeCommand(7); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 8 _8")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 8 _8")]
 		private static void AddNodeCommand8() { AddNodeCommand(8); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 9 _9")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 9 _9")]
 		private static void AddNodeCommand9() { AddNodeCommand(9); }
 
-		[MenuItem("Tools/SGVariablesExtraFeatures/Commands/Add Node 10 _0")]
+		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 10 _0")]
 		private static void AddNodeCommand10() { AddNodeCommand(10); }
 
 		private static void AddNodeCommand(int i) {
 			if (graphView == null) return;
-			Type type = addNodeTypes[i - 1];
+			AddNodeType type = addNodeTypes[i - 1];
 			if (type == null) {
 				string node = EditorPrefs.GetString("CyanSGVariables_Node" + i);
 				if (node == null || node == "") {
 					// Use default
 					node = addNodeDefaults[i - 1];
 				}
+				string subgraphGUID = null;
+				if (node.Contains("SubGraph")){
+					int start = node.IndexOf('(');
+					int end = node.LastIndexOf(')');
+					int length = end - start - 1;
+					subgraphGUID = node.Substring(start+1, length);
+					node = "SubGraph";
+				}else if (node == "RegisterVariable"){
+					subgraphGUID = "d455b29bada2b284ca73133c44fbc1ce";
+					node = "SubGraph";
+				}else if (node == "GetVariable"){
+					subgraphGUID = "5951f0cfb2fb4134ea014f63adeff8d9";
+					node = "SubGraph";
+				}
 				string typeString = "UnityEditor.ShaderGraph." + node + "Node";
-				type = sgAssembly.GetType(typeString);
+				type = new AddNodeType(sgAssembly.GetType(typeString), subgraphGUID);
 				addNodeTypes[i - 1] = type;
 				if (type == null) {
 					Debug.LogWarning("Type " + typeString + " does not exist");
@@ -226,10 +254,13 @@ namespace Cyan {
 		private static PropertyInfo drawStateProperty;
 		private static PropertyInfo positionProperty;
 		private static PropertyInfo expandedProperty;
+		private static PropertyInfo subGraphAssetProperty;
 
 		private static MethodInfo addNodeMethod;
 
-		private static void AddNode(Type type, Rect position) {
+		private static void AddNode(AddNodeType addNodeType, Rect position) {
+			if (addNodeType == null) return;
+			Type type = addNodeType.type;
 			if (type == null) return;
 			var nodeToAdd = Activator.CreateInstance(type);
 			if (nodeToAdd == null) {
@@ -251,6 +282,14 @@ namespace Cyan {
 			positionProperty.SetValue(drawState, position);
 			drawStateProperty.SetValue(nodeToAdd, drawState);
 
+			// Handle SubGraph GUID
+			string subgraphGUID = addNodeType.subgraphGUID;
+			if (subgraphGUID != null){
+				if (subGraphAssetProperty == null) subGraphAssetProperty = type.GetProperty("asset");
+				object asset = GetSubGraphAsset(subgraphGUID);
+				if (asset != null) subGraphAssetProperty.SetValue(nodeToAdd, asset);
+			}
+
 			// GraphData.AddNode(abstractMaterialNode)
 			if (addNodeMethod == null)
 				addNodeMethod = graphDataType.GetMethod("AddNode", bindingFlags);
@@ -258,6 +297,13 @@ namespace Cyan {
 			addNodeMethod.Invoke(graphData, new object[] { nodeToAdd });
 
 			if (debugMessages) Debug.Log("Added Node of Type " + type.ToString());
+		}
+
+		// Support SubGraphs
+		private static Type subGraphAssetType;
+		public static object GetSubGraphAsset(string guidString){
+			if (subGraphAssetType == null) subGraphAssetType = sgAssembly.GetType("UnityEditor.ShaderGraph.SubGraphAsset");
+			return AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath(guidString), subGraphAssetType);
 		}
 		#endregion
 

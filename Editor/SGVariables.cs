@@ -65,13 +65,15 @@ namespace Cyan {
 
 		// Debug ----------------------------------------------
 
-		internal static bool debugMessages 				= false;
+		public static bool doUpdateCheck = true;
 
-		private static bool disableTool 				= false;
-		private static bool disableVariableNodes 		= false;
-		private static bool disableExtraFeatures 		= false;
-		private static bool debugPutTextFieldAboveNode 	= false;
-		private static bool debugDontHideEdges 			= false;
+		internal static bool debugMessages = false;
+
+		private static bool disableTool = false;
+		private static bool disableVariableNodes = false;
+		private static bool disableExtraFeatures = false;
+		private static bool debugPutTextFieldAboveNode = false;
+		private static bool debugDontHideEdges = false;
 
 		//	----------------------------------------------------
 
@@ -752,7 +754,7 @@ namespace Cyan {
 		/// Used on a Register Variable node to link it to all Get Variable nodes in the graph.
 		/// </summary>
 		private static List<Node> LinkToAllGetVariableNodes(string key, Node registerNode) {
-			if (debugMessages) Debug.Log("LinkToAllGetVariableNodes("+key+")");
+			if (debugMessages) Debug.Log("LinkToAllGetVariableNodes(" + key + ")");
 
 			List<Node> linkedNodes = new List<Node>();
 			Action<Node> nodeAction = (Node n) => {
@@ -764,7 +766,7 @@ namespace Cyan {
 					}
 				}
 			};
-			
+
 			graphView.nodes.ForEach(nodeAction);
 			ValidateGraph();
 			return linkedNodes;
@@ -1164,7 +1166,7 @@ namespace Cyan {
 		/// <summary>
 		/// Calls graphData.ValidateGraph() (via Reflection)
 		/// </summary>
-		public static void ValidateGraph(){
+		public static void ValidateGraph() {
 			if (validateGraph == null)
 				validateGraph = graphDataType.GetMethod("ValidateGraph");
 
@@ -1209,8 +1211,8 @@ namespace Cyan {
 			object materialNode = NodeToSGMaterialNode(node);
 			clearErrorsForNode.Invoke(graphData, new object[] { materialNode });
 		}
-		
-		public static void RemoveNode(Node node){
+
+		public static void RemoveNode(Node node) {
 			if (removeNode == null) removeNode = graphDataType.GetMethod("RemoveNode", bindingFlags);
 			removeNode.Invoke(graphData, new object[] { NodeToSGMaterialNode(node) });
 		}
