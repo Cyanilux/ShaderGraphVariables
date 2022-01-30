@@ -462,7 +462,7 @@ namespace Cyan {
 						width += info.glyphWidth + info.advance;
 					}
 				}
-				//node.style.minWidth = width + 42; // margins/padding
+				node.style.minWidth = width + 42; // margins/padding
 			}
 			node.MarkDirtyRepaint();
 			//Debug.Log("ResizeNodeToFitText : " + width + ", string : " + s);
