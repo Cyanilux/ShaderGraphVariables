@@ -43,7 +43,7 @@ If there's any errors/problems, let me know by opening an [issue](https://github
     - 8 : Absolute
     - 9 : Step
     - 0 : Smoothstep
-  - To change nodes : Tools → SGVariablesExtraFeatures → Rebind Node Bindings
+  - To change nodes : Tools → SGVariables → ExtraFeatures → Rebind Node Bindings
 - To edit keybindings : Edit → Shortcuts (search for SGVariables)
   - Note, try to avoid conflicts with [SG's hotkeys](https://www.cyanilux.com/tutorials/intro-to-shader-graph/#shortcuts) (mainly A, F and O) as those can't be rebound
 
