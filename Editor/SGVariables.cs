@@ -443,20 +443,28 @@ namespace Cyan {
 
 			field.value = variableName;
 
-			// Add TextField to node VisualElement 
+			// Add TextField to node VisualElement
 			// Note : This must match what's in TryGetTextField
 			node.Insert(1, field);
+
 			return field;
 		}
 
 		private static void ResizeNodeToFitText(Node node, string s) {
-			float width = 0;
-			foreach (char c in s) {
-				if (m_LoadedFont.GetCharacterInfo(c, out CharacterInfo info)) {
-					width += info.glyphWidth + info.advance;
+			if (m_LoadedFont == null){
+				//Debug.LogError("Seems font (Fonts/Inter/Inter-Regular.ttf) is null? Cannot get string width, defaulting to 250");
+				node.style.minWidth = 250;
+			}else{
+				m_LoadedFont.RequestCharactersInTexture(s);
+				float width = 0;
+				foreach (char c in s) {
+					if (m_LoadedFont.GetCharacterInfo(c, out CharacterInfo info)) {
+						width += info.glyphWidth + info.advance;
+					}
 				}
+				//node.style.minWidth = width + 42; // margins/padding
 			}
-			node.style.minWidth = width + 45;
+			node.MarkDirtyRepaint();
 			//Debug.Log("ResizeNodeToFitText : " + width + ", string : " + s);
 		}
 
