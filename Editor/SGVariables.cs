@@ -281,6 +281,9 @@ namespace Cyan {
 						if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
 							string key = GetSerializedVariableKey(node);
 							Get(key, node);
+						}else if (loadVariables){
+							string key = GetSerializedVariableKey(node);
+							ResizeNodeToFitText(node, key);
 						}
 
 						Port connectedInputF = GetConnectedPort(outputFloat);
@@ -454,6 +457,7 @@ namespace Cyan {
 				}
 			}
 			node.style.minWidth = width + 45;
+			//Debug.Log("ResizeNodeToFitText : " + width + ", string : " + s);
 		}
 
 		private static bool IsPortHidden(Port port) {
@@ -963,6 +967,7 @@ namespace Cyan {
 		private static Type materialSlotType;
 		private static Type IEdgeType;
 		private static Type listType_MaterialSlot;
+		private static Type listType_GenericParam0;
 		private static Type listType_IEdge;
 
 		internal static FieldInfo synonymsField;
@@ -1119,8 +1124,20 @@ namespace Cyan {
 			object abstractMaterialNode = NodeToSGMaterialNode(node);
 
 			// This all feels pretty hacky, but it works~
-
+#if UNITY_2021_2_OR_NEWER
 			// Reflection for : AbstractMaterialNode.GetInputSlots(List<MaterialSlot> list) / GetOutputSlots(List<MaterialSlot> list)
+			if (listType_GenericParam0 == null){
+				listType_GenericParam0 = typeof(List<>).MakeGenericType(Type.MakeGenericMethodParameter(0));
+			}
+			if (getInputSlots_MaterialSlot == null) {
+				MethodInfo getInputSlots = abstractMaterialNodeType.GetMethod("GetInputSlots", new Type[]{listType_GenericParam0});
+				getInputSlots_MaterialSlot = getInputSlots.MakeGenericMethod(materialSlotType);
+			}
+			if (getOutputSlots_MaterialSlot == null) {
+				MethodInfo getOutputSlots = abstractMaterialNodeType.GetMethod("GetOutputSlots", new Type[]{listType_GenericParam0});
+				getOutputSlots_MaterialSlot = getOutputSlots.MakeGenericMethod(materialSlotType);
+			}
+#else
 			if (getInputSlots_MaterialSlot == null) {
 				MethodInfo getInputSlots = abstractMaterialNodeType.GetMethod("GetInputSlots");
 				getInputSlots_MaterialSlot = getInputSlots.MakeGenericMethod(materialSlotType);
@@ -1129,9 +1146,10 @@ namespace Cyan {
 				MethodInfo getOutputSlots = abstractMaterialNodeType.GetMethod("GetOutputSlots");
 				getOutputSlots_MaterialSlot = getOutputSlots.MakeGenericMethod(materialSlotType);
 			}
+#endif
 			if (listType_MaterialSlot == null)
 				listType_MaterialSlot = typeof(List<>).MakeGenericType(materialSlotType);
-
+			
 			IList materialSlotList = (IList)Activator.CreateInstance(listType_MaterialSlot);
 			MethodInfo method = (direction == Direction.Input) ? getInputSlots_MaterialSlot : getOutputSlots_MaterialSlot;
 			method.Invoke(abstractMaterialNode, new object[] { materialSlotList });
