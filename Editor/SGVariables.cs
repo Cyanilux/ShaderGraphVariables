@@ -110,8 +110,8 @@ namespace Cyan {
 		internal static GraphView graphView;
 		internal static bool loadVariables;
 
-		// (Font needed to get string width for variable fields)
-		private static Font m_LoadedFont = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
+        // (Font needed to get string width for variable fields)
+        private static Font m_LoadedFont;// = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
 
 		private static void CheckForGraphs() {
 			if (Time.realtimeSinceStartup < initTime + 3f) return;
@@ -140,7 +140,9 @@ namespace Cyan {
 					if (!disableExtraFeatures) ExtraFeatures.UpdateExtraFeatures();
 					loadVariables = false;
 				}
-			}
+			}else{
+                graphView = null;
+            }
 		}
 
 		#region SGVariables
@@ -451,6 +453,7 @@ namespace Cyan {
 		}
 
 		private static void ResizeNodeToFitText(Node node, string s) {
+			if (m_LoadedFont == null) m_LoadedFont = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
 			if (m_LoadedFont == null){
 				//Debug.LogError("Seems font (Fonts/Inter/Inter-Regular.ttf) is null? Cannot get string width, defaulting to 250");
 				node.style.minWidth = 250;

@@ -181,9 +181,9 @@ namespace Cyan {
 			RebindWindow window = (RebindWindow)EditorWindow.GetWindow(typeof(RebindWindow));
 			window.Show();
 		}
-		#endregion
-
-		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 1 _1")]
+        #endregion
+		
+        [MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 1 _1")]
 		private static void AddNodeCommand1() { AddNodeCommand(1); }
 
 		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Add Node 2 _2")]
