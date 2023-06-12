@@ -51,7 +51,7 @@ namespace Cyan {
 		#region Extra Features (Swap Command)
 		[MenuItem("Tools/SGVariables/ExtraFeatures/Commands/Swap Ports On Selected Nodes _s")]
 		private static void SwapPortsCommand() {
-			if (graphView == null) return;
+			if (!sgHasFocus || graphView == null) return;
 			if (debugMessages) Debug.Log("Swap Ports");
 
 			List<ISelectable> selected = graphView.selection;
@@ -214,7 +214,7 @@ namespace Cyan {
 		private static void AddNodeCommand10() { AddNodeCommand(10); }
 
 		private static void AddNodeCommand(int i) {
-			if (graphView == null) return;
+			if (!sgHasFocus || graphView == null) return;
 			AddNodeType type = addNodeTypes[i - 1];
 			if (type == null) {
 				string node = EditorPrefs.GetString("CyanSGVariables_Node" + i);
@@ -326,9 +326,10 @@ namespace Cyan {
 		}
 
 		internal static void UpdateExtraFeatures() {
-			//if (loadVariables) { // (first time load, but we kinda need to constantly check as groups could be copied)
-			// Load Group Colours
-			graphView.nodes.ForEach((Node node) => {
+			if (!sgHasFocus) return;
+            //if (loadVariables) { // (first time load, but we kinda need to constantly check as groups could be copied)
+            // Load Group Colours
+            graphView.nodes.ForEach((Node node) => {
 				if (node.title.Equals("Color") && node.visible) {
 					if (GetSerializedValue(node) == "GroupColor") {
 						var scope = node.GetContainingScope();

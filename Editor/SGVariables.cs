@@ -64,9 +64,7 @@ namespace Cyan {
 	public class SGVariables {
 
 		// Debug ----------------------------------------------
-
-		public static bool doUpdateCheck = true;
-
+		
 		internal static bool debugMessages = false;
 
 		private static bool disableTool = false;
@@ -85,8 +83,9 @@ namespace Cyan {
 
 		private static float initTime;
 		private static bool isEnabled;
+        //private static bool revalidateGraph = false;
 
-		static SGVariables() {
+        static SGVariables() {
 			if (disableTool) return;
 			Start();
 		}
@@ -108,7 +107,8 @@ namespace Cyan {
 		internal static EditorWindow sgWindow;
 		internal static EditorWindow prev;
 		internal static GraphView graphView;
-		internal static bool loadVariables;
+        internal static bool sgHasFocus;
+        internal static bool loadVariables;
 
         // (Font needed to get string width for variable fields)
         private static Font m_LoadedFont;// = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
@@ -121,7 +121,8 @@ namespace Cyan {
 
 			if (focusedWindow.GetType().ToString().Contains("ShaderGraph")) {
 				// is Shader Graph
-				if (focusedWindow != prev || graphView == null) {
+                sgHasFocus = true;
+                if (focusedWindow != prev || graphView == null) {
 					sgWindow = focusedWindow;
 
 					// Focused (new / different) Shader Graph window
@@ -139,9 +140,10 @@ namespace Cyan {
 					if (!disableVariableNodes) UpdateVariableNodes();
 					if (!disableExtraFeatures) ExtraFeatures.UpdateExtraFeatures();
 					loadVariables = false;
-				}
+					//if (revalidateGraph) ValidateGraph();
+                }
 			}else{
-                graphView = null;
+                sgHasFocus = false;
             }
 		}
 
@@ -327,8 +329,8 @@ namespace Cyan {
 				}
 			};
 
-			graphView.nodes.ForEach(nodeAction);
-		}
+            graphView.nodes.ForEach(nodeAction);
+        }
 
 		private static void HandlePortUpdates() {
 			for (int i = editedPorts.Count - 1; i >= 0; i--) {
@@ -436,9 +438,12 @@ namespace Cyan {
 				field.style.top = 39; // put field over first input/output port
 			}
 			field.StretchToParentWidth();
-			// Note : Later we also adjust margins so it doesn't hide the required ports
+            // Note : Later we also adjust margins so it doesn't hide the required ports
 
-			var textInput = field.ElementAt(0);
+            var textInput = field.ElementAt(0); // TextField -> TextInput
+#if UNITY_2022_1_OR_NEWER
+textInput = textInput.ElementAt(0); // TextInput -> TextElement
+#endif
 			textInput.style.fontSize = 25;
 			textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
 			//textInput.style.borderTopColor = new Color(0.13f, 0.13f, 0.13f);
@@ -783,8 +788,8 @@ namespace Cyan {
 			};
 
 			graphView.nodes.ForEach(nodeAction);
-			ValidateGraph();
-			return linkedNodes;
+            //revalidateGraph = true;
+            return linkedNodes;
 		}
 
 		/// <summary>
@@ -830,7 +835,7 @@ namespace Cyan {
 				// Link, Register Variable > Get Variable
 				DisconnectAllInputs(node);
 				LinkRegisterToGetVariableNode(varNode, node);
-				ValidateGraph();
+				//revalidateGraph = true;
 			} else {
 				// Key doesn't exist. If any inputs, disconnect them
 				DisconnectAllInputs(node);
@@ -958,7 +963,7 @@ namespace Cyan {
 			for (int i = 0; i < toConnect.Count; i++) {
 				Connect(toPort, toConnect[i], true);
 			}
-			ValidateGraph();
+			//revalidateGraph = true;
 		}
 		#endregion
 
@@ -1189,18 +1194,23 @@ namespace Cyan {
 			}
 
 			// Now manually trigger ValidateGraph
-			ValidateGraph();
+			//revalidateGraph = true;
 		}
 
+		/*
+		Seems to cause editor stalls and not sure if it's actually needed?
+		There's only one minor visual bug I've noticed when switching between Vector/Float types but I'm not too bothered about that right now.
 		/// <summary>
 		/// Calls graphData.ValidateGraph() (via Reflection)
 		/// </summary>
 		public static void ValidateGraph() {
+			revalidateGraph = false;
 			if (validateGraph == null)
 				validateGraph = graphDataType.GetMethod("ValidateGraph");
 
 			validateGraph.Invoke(graphData, null);
 		}
+		*/
 
 		/// <summary>
 		/// Registers to the port's OnConnect and OnDisconnect delegates (via Reflection as they are internal)
