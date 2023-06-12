@@ -2,9 +2,7 @@
 
 - **Requires Shader Graph v10+**
 - **Tested with Unity 2020.3.0f1, Shader Graph v10.3.2** (URP, but should work in HDRP too)
-- Should also work with Unity 2021.1 / SG v11
-
-If there's any errors/problems, let me know by opening an [issue](https://github.com/Cyanilux/ShaderGraphVariables/issues) (if one doesn't already exist)
+- Should also work with newer Unity versions. If there's any errors/problems, let me know by opening an [issue](https://github.com/Cyanilux/ShaderGraphVariables/issues) (if one doesn't already exist)
 
 <img src="https://user-images.githubusercontent.com/69320946/122465638-3e384180-cfb0-11eb-8912-30dc00234a46.gif" width="600">
 
