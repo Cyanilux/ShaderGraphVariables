@@ -1117,10 +1117,19 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 				connectNoValidateMethod = graphDataType.GetMethod("ConnectNoValidate", bindingFlags);
 
 			MethodInfo method = (noValidate) ? connectNoValidateMethod : connectMethod;
-			var sgEdge = method.Invoke(graphData, new object[] {
-				GetSlotReference(GetMaterialSlot(edge.output)),
-				GetSlotReference(GetMaterialSlot(edge.input))
-			});
+			var parameters = method.GetParameters().Length == 3 ? 
+				new object[]
+				{
+					GetSlotReference(GetMaterialSlot(edge.output)),
+					GetSlotReference(GetMaterialSlot(edge.input)),
+					false
+				}
+				: new object[]
+				{
+					GetSlotReference(GetMaterialSlot(edge.output)),
+					GetSlotReference(GetMaterialSlot(edge.input))
+				};
+			var sgEdge = method.Invoke(graphData, parameters);
 
 			// Connect returns type of UnityEditor.Graphing.Edge
 			// https://github.com/Unity-Technologies/Graphics/blob/master/com.unity.shadergraph/Editor/Data/Implementation/Edge.cs
