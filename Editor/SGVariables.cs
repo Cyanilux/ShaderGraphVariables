@@ -131,7 +131,8 @@ namespace Cyan {
 					graphView = GetGraphViewFromMaterialGraphEditWindow(focusedWindow);
 
 					// Clear the stored variables and reload variables
-					variables.Clear();
+					variableDict.Clear();
+					variableNames.Clear();
 					loadVariables = true;
 					prev = focusedWindow;
 				}
@@ -231,7 +232,7 @@ namespace Cyan {
 						// If this breaks, an alternative is to just check the ports each frame for different types
 
 					} else {
-						// Register Variable Update
+						// Register Variable Update (called each frame)
 						if (loadVariables) {
 							Register("", field.value, node);
 						}
@@ -299,34 +300,14 @@ namespace Cyan {
 						}
 
 					} else {
+						// Get Variable Update (called each frame)
 						if (!node.expanded) {
 							bool hasPorts = node.RefreshPorts();
 							if (!hasPorts) HideElement(field);
 						} else {
-                       
-                            field.choices = GetDropdownChoices();
+							field.choices = variableNames;
                             ShowElement(field);
 						}
-						/*
-						// Get Variable Update
-						var inputPorts = GetInputPorts(node);
-						Port inputActive = GetActivePort(inputPorts);
-
-						bool shouldRemove = false;
-						string key = GetSerializedVariableKey(node);
-						if (variables.ContainsKey(key.ToUpper())){
-							foreach (var edge in inputActive.connections) {
-								if (!edge.output.node.title.Equals("Register Variable")) {
-									shouldRemove = true;
-								}
-							}
-							if (shouldRemove) {
-								DisconnectAllEdges(node, inputActive);
-								Get(key, node);
-							}
-						}
-						// Not needed anymore, figured out a way to hide the ports and prevent connecting
-						*/
 					}
 				}
 			};
@@ -447,14 +428,17 @@ namespace Cyan {
 			field.StretchToParentWidth();
             // Note : Later we also adjust margins so it doesn't hide the required ports
 
+			/*
             var textInput = field.ElementAt(0); // TextField -> TextInput
-#if UNITY_2022_1_OR_NEWER
-textInput = textInput.ElementAt(0); // TextInput -> TextElement
-#endif
+			#if UNITY_2022_1_OR_NEWER
+			textInput = textInput.ElementAt(0); // TextInput -> TextElement
+			#endif
+			*/
+			var textInput = field.Q<TextElement>();
+
 			textInput.style.fontSize = 25;
 			textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
-			//textInput.style.borderTopColor = new Color(0.13f, 0.13f, 0.13f);
-
+			
 			field.value = variableName;
 
 			// Add TextField to node VisualElement
@@ -464,25 +448,14 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 			return field;
 		}
 
-        private static List<string> GetDropdownChoices()
-        {
-            List<string> allVariables = new List<string>();
-            foreach (KeyValuePair<string, Node> pair in variables)
-            {
-                allVariables.Add(pair.Key);
-            }
-            return allVariables;
-        }
-
-        private static DropdownField CreateDropDownField(Node node, out string variableName)
-        {
+        private static DropdownField CreateDropDownField(Node node, out string variableName) {
             // Get Variable Name (saved in the node's "synonyms" field)
             variableName = GetSerializedVariableKey(node);
 
-            List<string> dropdownChoices = GetDropdownChoices();
             // Setup Text Field 
-            DropdownField field = new DropdownField();
-            field.choices = dropdownChoices;
+            DropdownField field = new DropdownField {
+                choices = variableNames
+            };
             field.style.position = Position.Absolute;
             if (debugPutTextFieldAboveNode)
             {
@@ -496,14 +469,15 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
             field.StretchToParentWidth();
             // Note : Later we also adjust margins so it doesn't hide the required ports
 
-            var dropdownInput = field.ElementAt(0);
+            //var dropdownInput = field.ElementAt(0).ElementAt(0); // DropdownField->VisualElement->PopupTextElement
+			var dropdownInput = field.Q<TextElement>();
 
             dropdownInput.style.fontSize = 25;
             dropdownInput.style.unityTextAlign = TextAnchor.MiddleCenter;
 
             field.value = variableName;
 
-            // Add TDropdownField to node VisualElement
+            // Add DropdownField to node VisualElement
             // Note : This must match what's in TryGetDropdownField
             node.Insert(1, field);
 
@@ -740,7 +714,12 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 		#endregion
 
 		#region Register/Get Variables
-		private static Dictionary<string, Node> variables = new Dictionary<string, Node>();
+		private static Dictionary<string, Node> variableDict = new Dictionary<string, Node>();
+		private static List<string> variableNames = new List<string>();
+		/*
+		variableDict keys are always upper case
+		variableNames stores the keys exactly as typed (but extra whitespace trimmed)
+		*/
 
 		/// <summary>
 		/// Adds the (newValue, node) to variables dictionary. Removes previousValue, if editing the correct node.
@@ -748,27 +727,31 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 		private static void Register(string previousValue, string newValue, Node node) {
 			ResizeNodeToFitText(node, newValue);
 
-			previousValue = previousValue.Trim().ToUpper();
+			previousValue = previousValue.Trim();
 			newValue = newValue.Trim();
-			string key = newValue.ToUpper();
 
-			bool previousKey = !previousValue.Equals("");
-			bool newKey = !key.Equals("");
+			// dictionary keys (always upper case)
+			string previousKey = previousValue.ToUpper();
+			string newKey = newValue.ToUpper();
+
+			bool HadPreviousKey = !previousKey.Equals("");
+			bool HasNewKey = !newKey.Equals("");
 
 			// Remove previous key from Dictionary (if it's the correct node as stored)
 			Node n;
-			if (previousKey) {
-				if (variables.TryGetValue(previousValue, out n)) {
+			if (HadPreviousKey) {
+				if (variableDict.TryGetValue(previousKey, out n)) {
 					if (n == node) {
-						if (debugMessages) Debug.Log("Removed " + previousValue);
-						variables.Remove(previousValue);
+						if (debugMessages) Debug.Log("Removed " + previousKey);
+						variableDict.Remove(previousKey);
+						variableNames.Remove(previousValue);
 					} else {
 						if (debugMessages) Debug.Log("Not same node, not removing key");
 					}
 				}
 			}
 
-			if (variables.TryGetValue(key, out n)) {
+			if (variableDict.TryGetValue(newKey, out n)) {
 				// Already contains key, was is the same node? (Changing case, e.g. "a" to "A" triggers this still)
 				if (node == n) {
 					// Same node. Serialise the new value and return,
@@ -779,9 +762,10 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 				if (n == null || n.userData == null) {
 					// Occurs if previous Register Variable node was deleted
 					if (debugMessages) Debug.Log("Replaced Null");
-					variables.Remove(key);
+					variableDict.Remove(newKey);
+					variableNames.Remove(newValue);
 				} else {
-					if (debugMessages) Debug.Log("Attempted to Register " + key + " but it's already in use!");
+					if (debugMessages) Debug.Log("Attempted to Register " + newKey + " but it's already in use!");
 
 					ShowValidationError(node, "Variable Key is already in use!");
 
@@ -793,16 +777,17 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 			}
 
 			// Add new key to Dictionary
-			if (newKey) {
-				if (debugMessages) Debug.Log("Register " + key);
-				variables.Add(key, node);
+			if (HasNewKey) {
+				if (debugMessages) Debug.Log("Register " + newKey);
+				variableDict.Add(newKey, node);
+				variableNames.Add(newValue);
 			}
 
 			// Allow key to be serialised (as user typed, not upper-case version)
 			SetSerializedVariableKey(node, newValue);
 
 			var outputPorts = GetOutputPorts(node);
-			if (previousKey) {
+			if (HadPreviousKey) {
 				// As the value has changed, disconnect any output edges
 				// But first, change Get Variable node types back to Vector4 default
 				Port outputPort = outputPorts.AtIndex(0); // (doesn't matter which port we use, as all should be connected)
@@ -815,9 +800,9 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 			}
 
 			// Check if any 'Get Variable' nodes are using the key and connect them
-			if (newKey) {
+			if (HasNewKey) {
 				NodePortType portType = GetNodePortType(node);
-				List<Node> nodes = LinkToAllGetVariableNodes(key, node);
+				List<Node> nodes = LinkToAllGetVariableNodes(newKey, node);
 				foreach (Node n2 in nodes) {
 					SetNodePortType(n2, portType); // outputPort
 				}
@@ -879,7 +864,7 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 
 			if (debugMessages) Debug.Log("Get " + key);
 
-			if (variables.TryGetValue(key, out Node varNode)) {
+			if (variableDict.TryGetValue(key, out Node varNode)) {
 				var outputPorts = GetOutputPorts(varNode);
 				var inputPorts = GetInputPorts(node);
 
