@@ -268,10 +268,10 @@ namespace Cyan {
 						}
 					}
 				} else if (node.title.Equals("Get Variable")) {
-					TextField field = TryGetTextField(node);
+                    DropdownField field = TryGetDropdownField(node);
 					if (field == null) {
 						// Get Variable Setup (called once)
-						field = CreateTextField(node, out string variableName);
+						field = CreateDropDownField(node, out string variableName);
 						field.style.marginLeft = 4;
 						field.style.marginRight = 25;
 						field.RegisterValueChangedCallback(x => Get(x.newValue, node));
@@ -303,7 +303,9 @@ namespace Cyan {
 							bool hasPorts = node.RefreshPorts();
 							if (!hasPorts) HideElement(field);
 						} else {
-							ShowElement(field);
+                       
+                            field.choices = GetDropdownChoices();
+                            ShowElement(field);
 						}
 						/*
 						// Get Variable Update
@@ -425,7 +427,12 @@ namespace Cyan {
 			return node.ElementAt(1) as TextField;
 		}
 
-		private static TextField CreateTextField(Node node, out string variableName) {
+        private static DropdownField TryGetDropdownField(Node node)
+        {
+            return node.ElementAt(1) as DropdownField;
+        }
+
+        private static TextField CreateTextField(Node node, out string variableName) {
 			// Get Variable Name (saved in the node's "synonyms" field)
 			variableName = GetSerializedVariableKey(node);
 
@@ -457,7 +464,54 @@ textInput = textInput.ElementAt(0); // TextInput -> TextElement
 			return field;
 		}
 
-		private static void ResizeNodeToFitText(Node node, string s) {
+        private static List<string> GetDropdownChoices()
+        {
+            List<string> allVariables = new List<string>();
+            foreach (KeyValuePair<string, Node> pair in variables)
+            {
+                allVariables.Add(pair.Key);
+            }
+            return allVariables;
+        }
+
+        private static DropdownField CreateDropDownField(Node node, out string variableName)
+        {
+            // Get Variable Name (saved in the node's "synonyms" field)
+            variableName = GetSerializedVariableKey(node);
+
+            List<string> dropdownChoices = GetDropdownChoices();
+            // Setup Text Field 
+            DropdownField field = new DropdownField();
+            field.choices = dropdownChoices;
+            field.style.position = Position.Absolute;
+            if (debugPutTextFieldAboveNode)
+            {
+                field.style.top = -35; // put field above (debug)
+            }
+            else
+            {
+                field.style.top = 39; // put field over first input/output port
+            }
+            field.style.height = 33;
+            field.StretchToParentWidth();
+            // Note : Later we also adjust margins so it doesn't hide the required ports
+
+            var dropdownInput = field.ElementAt(0);
+
+            dropdownInput.style.fontSize = 25;
+            dropdownInput.style.unityTextAlign = TextAnchor.MiddleCenter;
+
+            field.value = variableName;
+
+            // Add TDropdownField to node VisualElement
+            // Note : This must match what's in TryGetDropdownField
+            node.Insert(1, field);
+
+            return field;
+        }
+
+
+        private static void ResizeNodeToFitText(Node node, string s) {
 			if (m_LoadedFont == null) m_LoadedFont = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
 			if (m_LoadedFont == null){
 				//Debug.LogError("Seems font (Fonts/Inter/Inter-Regular.ttf) is null? Cannot get string width, defaulting to 250");
