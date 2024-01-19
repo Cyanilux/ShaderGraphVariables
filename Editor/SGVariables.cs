@@ -269,10 +269,21 @@ namespace Cyan {
 						}
 					}
 				} else if (node.title.Equals("Get Variable")) {
+				#if UNITY_2021_2_OR_NEWER
                     DropdownField field = TryGetDropdownField(node);
+				#else
+					// Unity 2020 did not have DropdownField,
+					// (and 2021.1 doesn't have DropdownField.choices)
+					// so for these, keep using TextField instead
+					TextField field = TryGetTextField(node);
+				#endif
 					if (field == null) {
 						// Get Variable Setup (called once)
+					#if UNITY_2021_2_OR_NEWER
 						field = CreateDropDownField(node, out string variableName);
+					#else
+						field = CreateTextField(node, out string variableName);
+					#endif
 						field.style.marginLeft = 4;
 						field.style.marginRight = 25;
 						field.RegisterValueChangedCallback(x => Get(x.newValue, node));
@@ -305,7 +316,9 @@ namespace Cyan {
 							bool hasPorts = node.RefreshPorts();
 							if (!hasPorts) HideElement(field);
 						} else {
+						#if UNITY_2021_2_OR_NEWER
 							field.choices = variableNames;
+						#endif
                             ShowElement(field);
 						}
 					}
@@ -408,11 +421,6 @@ namespace Cyan {
 			return node.ElementAt(1) as TextField;
 		}
 
-        private static DropdownField TryGetDropdownField(Node node)
-        {
-            return node.ElementAt(1) as DropdownField;
-        }
-
         private static TextField CreateTextField(Node node, out string variableName) {
 			// Get Variable Name (saved in the node's "synonyms" field)
 			variableName = GetSerializedVariableKey(node);
@@ -428,13 +436,10 @@ namespace Cyan {
 			field.StretchToParentWidth();
             // Note : Later we also adjust margins so it doesn't hide the required ports
 
-			/*
             var textInput = field.ElementAt(0); // TextField -> TextInput
 			#if UNITY_2022_1_OR_NEWER
-			textInput = textInput.ElementAt(0); // TextInput -> TextElement
+			textInput = field.Q<TextElement>(); // TextInput -> TextElement
 			#endif
-			*/
-			var textInput = field.Q<TextElement>();
 
 			textInput.style.fontSize = 25;
 			textInput.style.unityTextAlign = TextAnchor.MiddleCenter;
@@ -447,6 +452,11 @@ namespace Cyan {
 
 			return field;
 		}
+
+#if UNITY_2021_2_OR_NEWER
+        private static DropdownField TryGetDropdownField(Node node){
+            return node.ElementAt(1) as DropdownField;
+        }
 
         private static DropdownField CreateDropDownField(Node node, out string variableName) {
             // Get Variable Name (saved in the node's "synonyms" field)
@@ -483,7 +493,7 @@ namespace Cyan {
 
             return field;
         }
-
+#endif
 
         private static void ResizeNodeToFitText(Node node, string s) {
 			if (m_LoadedFont == null) m_LoadedFont = EditorGUIUtility.LoadRequired("Fonts/Inter/Inter-Regular.ttf") as Font;
@@ -718,7 +728,7 @@ namespace Cyan {
 		private static List<string> variableNames = new List<string>();
 		/*
 		variableDict keys are always upper case
-		variableNames stores the keys exactly as typed (but extra whitespace trimmed)
+		variableNames stores the keys exactly as typed (but extra whitespace trimmed) - (only really used in 2021.2+ for dropdownfield)
 		*/
 
 		/// <summary>

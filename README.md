@@ -9,7 +9,7 @@
 ### Main Feature :
 - Adds `Register Variable` and `Get Variable` nodes (technically empty subgraphs) to Shader Graph, allowing you to link sections of a graph without connection wires
   - `Register Variable` includes a TextField where you can enter a variable name (not case sensitive)
-  - `Get Variable` includes a DropdownField where you can select variables already registered. This will automatically link up the nodes with invisible connections/wires/edges
+  - `Get Variable` includes a DropdownField (2021.2+) where you can select variables already registered. (2020.2 to 2021.1 will use another TextField where you can enter the same variable name). This will automatically link up the nodes with invisible connections/wires/edges
   - These variables are **local to the graph** - they won't be shared between other graphs or subgraphs
 - Supports **Vector** and **Float** types
   - Vector2/3 will be promoted to Vector4. After `Get Variable`, can `Split` and re-`Combine` after if required
@@ -51,11 +51,12 @@
 - Note these methods won't update automatically, so please check back if you have any problems. If there's any important fixes or additional features added, I'll likely post about it on [twitter](https://twitter.com/Cyanilux) too!
 
 ### Usage : 
-1) Add Node → Register Variable
+1) Add Node → `Register Variable`
     - The node has a Text Field in the place of it's output port where you can type a variable name
     - Attach a Float/Vector to the input port
-2) Add Node → Get Variable
-    - This node has a Dropdown Field where you can select variables (previously registered using the above node)
+2) Add Node → `Get Variable`
+    - From 2020.2 to 2021.1 this node has a Text Field where you can type the same variable name.
+    - While 2021.2 onwards, it now has a Dropdown Field where you can select variables (previously registered using the `Register Variable` node)
     - Variable names aren't case sensitive. "Example" would stil link to "EXAMPLE" or "eXaMpLe" etc.
     - When the variable name matches, the input port value (e.g. (0,0,0,0)) should disappear and the preview will change
     - A connection/edge may blink temporarily, but then is hidden to keep the graph clean (kinda the whole point of the tool)
