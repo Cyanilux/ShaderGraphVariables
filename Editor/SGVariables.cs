@@ -175,50 +175,48 @@ namespace Cyan {
 
 						// Setup Node Type (Vector/Float)
 						var inputPorts = GetInputPorts(node);
-						Port inputVector = inputPorts.AtIndex(0);
-						Port inputFloat = inputPorts.AtIndex(1);
-						Port connectedOutput = GetConnectedPort(inputVector);
-						Port connectedOutputF = GetConnectedPort(inputFloat);
+						Port connectedOutput = null;
+						foreach (Port input in inputPorts.ToList()){
+							connectedOutput = GetConnectedPort(input);
+							if (connectedOutput != null) break;
+						}
 						NodePortType portType = NodePortType.Vector4;
 
 						if (connectedOutput != null) {
-							if (GetPortType(connectedOutput).Contains("Vector1")) {
+							string type = GetPortType(connectedOutput);
+							if (type.Contains("Vector1")) {
 								portType = NodePortType.Float;
+							}else if (type.Contains("Vector2")) {
+								portType = NodePortType.Vector2;
+							}else if (type.Contains("Vector3")) {
+								portType = NodePortType.Vector3;
 							}
-						}
-						if (connectedOutputF != null) {
-							if (GetPortType(connectedOutputF).Contains("Vector1")) {
-								portType = NodePortType.Float;
+
+							// Hide all input ports
+							foreach (Port input in inputPorts.ToList()){
+								HideInputPort(input);
+
+								DisconnectAllEdges(node, input);
+								Connect(connectedOutput, input);
+								// disconnect and reconnect to ensure all inputs are connected
+								// fixes an issue where only one is connected,
+								// (occurs when node was created while dragging an edge from an output port)
 							}
 						}
 
+						// Set type (shows required port)
 						SetNodePortType(node, portType);
 
-						if (connectedOutput == null && connectedOutputF == null) {
-						} else if (connectedOutput == null || connectedOutputF == null) {
-							// Only one of the ports is connected.
-							// This can happen if node was created while dragging an edge from an output port
-							// We need to make sure both are connected :
-							if (connectedOutput == null) {
-								Connect(connectedOutputF, inputVector);
-								Connect(connectedOutputF, inputFloat);
-							} else {
-								Connect(connectedOutput, inputVector);
-								Connect(connectedOutput, inputFloat);
-							}
-						}
-
+						// Test for invalid connections
 						var outputPorts = GetOutputPorts(node);
-						Port outputVector = outputPorts.AtIndex(0);
-						Port outputFloat = outputPorts.AtIndex(1);
-						Port connectedInput = GetConnectedPort(outputVector);
-						Port connectedInputF = GetConnectedPort(outputFloat);
-						if ((connectedInput != null && !connectedInput.node.title.Equals("Get Variable")) ||
-							(connectedInputF != null && !connectedInputF.node.title.Equals("Get Variable"))) {
-							// Not allowed to connect to the inputs of Register Variable node
+						foreach (Port output in outputPorts.ToList()){
+							Port connectedInput = GetConnectedPort(output);
+							if (connectedInput != null && !connectedInput.node.title.Equals("Get Variable")){
+								DisconnectAllEdges(node, output);
+							}
+							// Not allowed to connect to the outputs of Register Variable node
 							// (unless it's the Get Variable node, which is connected automatically)
 							// This can happen if node was created while dragging an edge from an input port
-							DisconnectAllOutputs(node);
 						}
 
 						// Register methods to port.OnConnect / port.OnDisconnect, (is internal so we use reflection)
@@ -724,7 +722,7 @@ namespace Cyan {
 				}
 			}
 			
-			// if Get Variable node and typeChanged, move outputs to "active" port
+			// move outputs to "active" port
 			if (!isRegisterNode && typeChanged && newOutput != null){
 				Port currentOutput;
 				if (currentPortType == NodePortType.Float){
