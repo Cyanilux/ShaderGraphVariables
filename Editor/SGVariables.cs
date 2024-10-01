@@ -17,10 +17,7 @@ Main Feature :
 		- These nodes (technically subgraphs) include a TextField where you can enter a variable name (not case sensitive).
 		- They automatically link up with invisible connections/wires/edges.
 		- These variables are local to the graph - they won't be shared between other graphs or subgraphs.
-	- Supports Vector and Float types.
-		- Vector2/3 will be promoted to Vector4. After Get Variable, can Split and re-Combine after if required.
-		- If a float is connected the port will automatically change. However note that DynamicVector/DynamicValue slots (used by most math nodes)
-		  currently default to the Vector4 port instead. If you require float, put the value through a Float node before connecting.
+	- Supports Float, Vector2, Vector3 and Vector4 types.
 	- The variable names are serialized using the node's "synonyms" field, which is unused by the graph (only used for nodes in the Add Node menu).
 	  If the tool is removed the graph should still load correctly. However it does use a few SubGraphs and if they don't exist you'll need to 
 	  remove those nodes, reinstall the tool, or at least include the SubGraphs from the tool in your Assets.
@@ -53,8 +50,7 @@ Usage :
 Known Issues :
 	- If a 'Get Variable' node is connected to the vertex stage and then a name is entered, it can cause shader errors
 		if fragment-only nodes are used by the variable (e.g. cannot map expression to vs_5_0 instruction set)
-	- If a node uses a DynamicVector/DynamicValue slot (Most math nodes) it will default to Vector4.
-		If you want Float, pass the value through the Float node before connecting!
+	- If a DynamicVector/DynamicValue output port (most math nodes) changes type (because of it's inputs), it wont update type of Get/Register Variable nodes connected previously.
 	- Got an issue, check : https://github.com/Cyanilux/ShaderGraphVariables/issues, if it's not there, add it!
 */
 
@@ -343,16 +339,12 @@ namespace Cyan {
 					if (debugMessages) Debug.Log(outputConnectedToInput.portName + " > " + port.portName);
 
 					var inputPorts = GetInputPorts(node);
-					Port inputVector = inputPorts.AtIndex(0);
-					Port inputFloat = inputPorts.AtIndex(1);
-
 					// Disconnect Inputs & Reconnect
-					if (IsPortHidden(inputVector)) {
-						DisconnectAllEdges(node, inputVector);
-						Connect(outputConnectedToInput, inputVector);
-					} else { //if (IsPortHidden(inputFloat)){
-						DisconnectAllEdges(node, inputFloat);
-						Connect(outputConnectedToInput, inputFloat);
+					foreach (Port input in inputPorts.ToList()){
+						if (IsPortHidden(input)) {
+							DisconnectAllEdges(node, input);
+							Connect(outputConnectedToInput, input);
+						}
 					}
 					// we avoid changing the active port to prevent infinite loop
 
@@ -366,7 +358,12 @@ namespace Cyan {
 						if (connectedSlotType.Contains("Vector1")) {
 							portType = NodePortType.Float;
 						}
-						/*
+						else if (connectedSlotType.Contains("Vector2")) {
+							portType = NodePortType.Vector2;
+						}
+						else if (connectedSlotType.Contains("Vector3")) {
+							portType = NodePortType.Vector3;
+						}
 						else if (connectedSlotType.Contains("DynamicVector") || connectedSlotType.Contains("DynamicValue")){
 							// Handles output slots that can change between vector types (or vector/matrix types)
 							// e.g. Most math based nodes use DynamicVector. Multiply uses DynamicValue
@@ -374,29 +371,24 @@ namespace Cyan {
 							FieldInfo dynamicTypeField = materialSlot.GetType().GetField("m_ConcreteValueType", bindingFlags);
 							string typeString = dynamicTypeField.GetValue(materialSlot).ToString();
 							if (typeString.Equals("Vector1")){
-								portType = NodePortType.Vector1;
+								portType = NodePortType.Float;
+							}else if (typeString.Equals("Vector2")){
+								portType = NodePortType.Vector2;
+							}else if (typeString.Equals("Vector3")){
+								portType = NodePortType.Vector3;
 							}else{
 								portType = NodePortType.Vector4;
 							}
-						}*/
+						}
 						/*
-						- While this works, it introduces a problem where, if we connect a Dynamic port the type changes correctly,
-							but then if we trigger the Dynamic port to change type, it doesn't trigger the port Connect/Disconnect
-							so the type doesn't change! It does switch type when the graph is reloaded but also kinda bugged.
-						- I may be able to fix this further by registering the inputs on the previous node (outputConnectedToInput.node)
-							to the Connect/Disconnect events to listen if the type changes...
-						- But it's also easier just defaulting to Vector4 and if the user really wants Float, pass it through a Float node first!
+						- While this works, it introduces a problem where
+							if we trigger the Dynamic port to change type by connecting to input ports
+							(e.g. a Vector4 node into a Multiply already connected to Register Variable)
+							it doesn't trigger the port Connect/Disconnect so the type of the Register Variable isn't updated!
 						*/
 
-						//Debug.Log("TYPE : " + portType);
+						SetNodePortType(node, portType);
 
-						if (inputSlotType.Contains("Vector4") && portType == NodePortType.Float) {
-							// If port is currently Vector4, but a Float has been attached
-							SetNodePortType(node, NodePortType.Float);
-						} else if (inputSlotType.Contains("Vector1") && portType == NodePortType.Vector4) {
-							// If port is currently Float, but a Vector2/3/4 has been attached
-							SetNodePortType(node, NodePortType.Vector4);
-						}
 					}
 				} else {
 					// Removed Port
@@ -547,8 +539,10 @@ namespace Cyan {
 		#region Get Input/Output Ports
 		// Register/Get Variable nodes support these types, should match port order
 		private enum NodePortType {
-			Vector4, // also used for Vector2, Vector3 and DynamicVector, DynamicValue
-			Float
+			Vector4, // also DynamicVector, DynamicValue
+			Float,
+			Vector2,
+			Vector3
 		}
 
 		public static UQueryState<Port> GetInputPorts(Node node) {
@@ -634,23 +628,33 @@ namespace Cyan {
 
 			NodePortType currentPortType = NodePortType.Vector4;
 
-			// Hide Inputs
-			Port inputVector = inputPorts.AtIndex(0);
-			Port inputFloat = inputPorts.AtIndex(1);
-			Port outputVector = outputPorts.AtIndex(0);
-			Port outputFloat = outputPorts.AtIndex(1);
-
 			if (isRegisterNode) {
+				Port inputVector = inputPorts.AtIndex(0);
+				Port inputFloat = inputPorts.AtIndex(1);
+				Port inputVector2 = inputPorts.AtIndex(2);
+				Port inputVector3 = inputPorts.AtIndex(3);
 				if (!IsPortHidden(inputVector)) {
 					currentPortType = NodePortType.Vector4;
 				} else if (!IsPortHidden(inputFloat)) {
 					currentPortType = NodePortType.Float;
+				} else if (!IsPortHidden(inputVector2)) {
+					currentPortType = NodePortType.Vector2;
+				} else if (!IsPortHidden(inputVector3)) {
+					currentPortType = NodePortType.Vector3;
 				}
 			} else {
+				Port outputVector = outputPorts.AtIndex(0);
+				Port outputFloat = outputPorts.AtIndex(1);
+				Port outputVector2 = outputPorts.AtIndex(2);
+				Port outputVector3 = outputPorts.AtIndex(3);
 				if (!IsPortHidden(outputVector)) {
 					currentPortType = NodePortType.Vector4;
 				} else if (!IsPortHidden(outputFloat)) {
 					currentPortType = NodePortType.Float;
+				} else if (!IsPortHidden(outputVector2)) {
+					currentPortType = NodePortType.Vector2;
+				} else if (!IsPortHidden(outputVector3)) {
+					currentPortType = NodePortType.Vector3;
 				}
 			}
 			return currentPortType;
@@ -676,21 +680,63 @@ namespace Cyan {
 			HideOutputPort(outputVector);
 			HideOutputPort(outputFloat);
 
-			// Show Ports (if Get Variable node and typeChanged, move outputs to "active" port)
+			if (isRegisterNode){
+				Port inputVector2 = inputPorts.AtIndex(2);
+				Port inputVector3 = inputPorts.AtIndex(3);
+				HideInputPort(inputVector2);
+				HideInputPort(inputVector3);
+			}else{
+				Port outputVector2 = outputPorts.AtIndex(2);
+				Port outputVector3 = outputPorts.AtIndex(3);
+				HideOutputPort(outputVector2);
+				HideOutputPort(outputVector3);
+			}
+
+			// Show Ports
+			Port newOutput = null;
 			if (portType == NodePortType.Vector4) {
 				if (isRegisterNode) {
 					ShowInputPort(inputVector);
 				} else {
-					ShowOutputPort(outputVector);
-					if (typeChanged) MoveAllOutputs(node, outputFloat, outputVector);
+					ShowOutputPort(newOutput = outputVector);
 				}
 			} else if (portType == NodePortType.Float) {
 				if (isRegisterNode) {
 					ShowInputPort(inputFloat);
 				} else {
-					ShowOutputPort(outputFloat);
-					if (typeChanged) MoveAllOutputs(node, outputVector, outputFloat);
+					ShowOutputPort(newOutput = outputFloat);
 				}
+			} else if (portType == NodePortType.Vector2) {
+				if (isRegisterNode) {
+					Port inputVector2 = inputPorts.AtIndex(2);
+					ShowInputPort(inputVector2);
+				} else {
+					Port outputVector2 = outputPorts.AtIndex(2);
+					ShowOutputPort(newOutput = outputVector2);
+				}
+			} else if (portType == NodePortType.Vector3) {
+				if (isRegisterNode) {
+					Port inputVector3 = inputPorts.AtIndex(3);
+					ShowInputPort(inputVector3);
+				} else {
+					Port outputVector3 = outputPorts.AtIndex(3);
+					ShowOutputPort(newOutput = outputVector3);
+				}
+			}
+			
+			// if Get Variable node and typeChanged, move outputs to "active" port
+			if (!isRegisterNode && typeChanged && newOutput != null){
+				Port currentOutput;
+				if (currentPortType == NodePortType.Float){
+					currentOutput = outputFloat;
+				}else if (currentPortType == NodePortType.Vector4){
+					currentOutput = outputVector;
+				}else if (currentPortType == NodePortType.Vector2){
+					currentOutput = outputPorts.AtIndex(2);
+				}else{ //if (currentPortType == NodePortType.Vector3){
+					currentOutput = outputPorts.AtIndex(3);
+				}
+				MoveAllOutputs(node, currentOutput, newOutput);
 			}
 
 			if (isRegisterNode && typeChanged) {
