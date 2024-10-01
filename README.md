@@ -11,10 +11,8 @@
   - `Register Variable` includes a TextField where you can enter a variable name (not case sensitive)
   - `Get Variable` includes a DropdownField (2021.2+) where you can select variables already registered. (2020.2 to 2021.1 will use another TextField where you can enter the same variable name). This will automatically link up the nodes with invisible connections/wires/edges
   - These variables are **local to the graph** - they won't be shared between other graphs or subgraphs
-- Supports **Vector** and **Float** types
-  - Vector2/3 will be promoted to Vector4. After `Get Variable`, can `Split` and re-`Combine` after if required
-  - If a float is connected the port will automatically change. However note that DynamicVector/DynamicValue slots (used by most math nodes) currently default to the Vector4 port instead. If you require float, put the value through a `Float` node before connecting!
-- The variable names are serialized using the node's "synonyms" field, which is seemingly unused by the graph (only used in the Add Node menu). The field was added in v10 so is one main reason why the tool wouldn't work properly on previous versions.
+- Supports **Float**, **Vector2**, **Vector3** and **Vector4** types
+- Variable names are serialized using the node's "synonyms" field, which is seemingly unused by the graph (only used in the Add Node menu). The field was added in v10 so is one main reason why the tool wouldn't work properly on previous versions.
 - Note that if the package is removed, any graphs that used it should still load - but with errors as the `Register/Get Variable` SubGraphs used no longer exist. You'll need to manually remove these and reconnect those parts of the graph to get it working. Otherwise, reinstall the tool, or at least include the provided SubGraphs in your Assets to prevent errors.
 - For setup & usage instructions, see below
 
@@ -68,4 +66,4 @@
 
 ### Known Issues :
   - If a 'Get Variable' node is connected to the vertex stage, it can cause shader errors if fragment-only nodes are used by the variable (e.g. cannot map expression to vs_5_0 instruction set)
-  - If a node uses a DynamicVector/DynamicValue slot (most math nodes) it currently will default to Vector4. If you want Float, pass the value through the `Float` node before connecting!
+  - If a node uses a DynamicVector/DynamicValue slot (most math nodes) and it's output type changes, it won't update the type of Register Variable nodes that are already connected. The type of the variable node only changes when its port is changed.
