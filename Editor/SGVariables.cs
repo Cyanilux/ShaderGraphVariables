@@ -303,7 +303,9 @@ namespace Cyan {
 						// (as Register Variable node may trigger it first)
 						if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
 							string key = GetSerializedVariableKey(node);
-							Get(key, node);
+							//Get(key, node); // causes errors in 2022
+							// (I think due to the DisconnectAllInputs then reconnecting later when Register Variable node triggers linking...)
+							SetNodePortType(node, NodePortType.Vector4); // default to vector (hides other ports)
 						}else if (loadVariables){
 							string key = GetSerializedVariableKey(node);
 							ResizeNodeToFitText(node, key);
