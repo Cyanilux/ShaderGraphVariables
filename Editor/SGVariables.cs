@@ -190,17 +190,30 @@ namespace Cyan {
 								portType = NodePortType.Vector2;
 							}else if (type.Contains("Vector3")) {
 								portType = NodePortType.Vector3;
+							}else if (type.Contains("DynamicVector") || type.Contains("DynamicValue")){
+								// Handles output slots that can change between vector types (or vector/matrix types)
+								// e.g. Most math based nodes use DynamicVector. Multiply uses DynamicValue
+								var materialSlot = GetMaterialSlot(connectedOutput);
+								FieldInfo dynamicTypeField = materialSlot.GetType().GetField("m_ConcreteValueType", bindingFlags);
+								string typeString = dynamicTypeField.GetValue(materialSlot).ToString();
+								if (typeString.Equals("Vector1")){
+									portType = NodePortType.Float;
+								}else if (typeString.Equals("Vector2")){
+									portType = NodePortType.Vector2;
+								}else if (typeString.Equals("Vector3")){
+									portType = NodePortType.Vector3;
+								}else{
+									portType = NodePortType.Vector4;
+								}
 							}
+							// same as some later code in HandlePortUpdates, should really refactor into it's own method
 
-							// Hide all input ports
+							// Hide all input ports & make sure they are connected (probably could just connect based on port type, but this is easier)
 							foreach (Port input in inputPorts.ToList()){
 								HideInputPort(input);
 
-								DisconnectAllEdges(node, input);
+								//DisconnectAllEdges(node, input); // avoid disconnecting... seems this causes errors in some sg/unity versions
 								Connect(connectedOutput, input);
-								// disconnect and reconnect to ensure all inputs are connected
-								// fixes an issue where only one is connected,
-								// (occurs when node was created while dragging an edge from an output port)
 							}
 						}
 
@@ -340,7 +353,7 @@ namespace Cyan {
 					// Disconnect Inputs & Reconnect
 					foreach (Port input in inputPorts.ToList()){
 						if (IsPortHidden(input)) {
-							DisconnectAllEdges(node, input);
+							//DisconnectAllEdges(node, input);
 							Connect(outputConnectedToInput, input);
 						}
 					}
