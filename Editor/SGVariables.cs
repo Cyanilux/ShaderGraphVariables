@@ -61,7 +61,7 @@ namespace Cyan {
 
 		// Debug ----------------------------------------------
 		
-		internal static bool debugMessages = true;
+		internal static bool debugMessages = false;
 
 		private static bool disableTool = false;
 		private static bool disableVariableNodes = false;
