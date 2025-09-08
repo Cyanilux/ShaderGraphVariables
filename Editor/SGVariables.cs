@@ -61,7 +61,7 @@ namespace Cyan {
 
 		// Debug ----------------------------------------------
 		
-		internal static bool debugMessages = false;
+		internal static bool debugMessages = true;
 
 		private static bool disableTool = false;
 		private static bool disableVariableNodes = false;
@@ -303,10 +303,21 @@ namespace Cyan {
 						// (as Register Variable node may trigger it first)
 						if (!IsPortHidden(outputVector) && !IsPortHidden(outputFloat)) {
 							string key = GetSerializedVariableKey(node);
+							ResizeNodeToFitText(node, key);
+
 							//Get(key, node); // causes errors in 2022
 							// (I think due to the DisconnectAllInputs then reconnecting later when Register Variable node triggers linking...)
-							SetNodePortType(node, NodePortType.Vector4); // default to vector (hides other ports)
-						}else if (loadVariables){
+
+							key = key.Trim().ToUpper();
+							if (variableDict.TryGetValue(key, out Node varNode)) {
+								// Make sure Get Variable node matches Register Variable type
+								// accounts for node being copied
+								SetNodePortType(node, GetNodePortType(varNode));
+							} else {
+								SetNodePortType(node, NodePortType.Vector4); // default to vector (hides other ports)
+							}
+
+						} else if (loadVariables) {
 							string key = GetSerializedVariableKey(node);
 							ResizeNodeToFitText(node, key);
 						}
@@ -934,8 +945,8 @@ namespace Cyan {
 			if (debugMessages) Debug.Log("Get " + key);
 
 			if (variableDict.TryGetValue(key, out Node varNode)) {
-				var outputPorts = GetOutputPorts(varNode);
-				var inputPorts = GetInputPorts(node);
+				//var outputPorts = GetOutputPorts(varNode);
+				//var inputPorts = GetInputPorts(node);
 
 				// Make sure Get Variable node matches Register Variable type
 				SetNodePortType(node, GetNodePortType(varNode));
