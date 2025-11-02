@@ -867,7 +867,28 @@ namespace Cyan {
 			SetSerializedVariableKey(node, newValue);
 
 			var outputPorts = GetOutputPorts(node);
-			if (HadPreviousKey) {
+			//if (HadPreviousKey) {
+				// Key has changed. Update key on connected "Get Variable" nodes
+				Port outputPort = outputPorts.AtIndex(0); // (doesn't matter which port we use, as all should be connected)
+				foreach (Edge edge in outputPort.connections) {
+					if (edge.input != null && edge.input.node != null) {
+						
+						#if UNITY_2021_2_OR_NEWER
+							DropdownField field = TryGetDropdownField(edge.input.node);
+						#else
+							// Unity 2020 did not have DropdownField,
+							// (and 2021.1 doesn't have DropdownField.choices)
+							// so for these, keep using TextField instead
+							TextField field = TryGetTextField(edge.input.node);
+#endif
+						field?.SetValueWithoutNotify(newValue);
+						ResizeNodeToFitText(edge.input.node, newValue);
+						SetSerializedVariableKey(edge.input.node, newValue);
+					}
+				}
+
+				// OLD Behaviour : Disconnect
+				/*
 				// As the value has changed, disconnect any output edges
 				// But first, change Get Variable node types back to Vector4 default
 				Port outputPort = outputPorts.AtIndex(0); // (doesn't matter which port we use, as all should be connected)
@@ -877,9 +898,10 @@ namespace Cyan {
 					}
 				}
 				DisconnectAllOutputs(node);
-			}
+				*/
+			//}
 
-			// Check if any 'Get Variable' nodes are using the key and connect them
+			// Check if any 'Get Variable' nodes are using the key and connect them (if not already)
 			if (HasNewKey) {
 				NodePortType portType = GetNodePortType(node);
 				List<Node> nodes = LinkToAllGetVariableNodes(newKey, node);
