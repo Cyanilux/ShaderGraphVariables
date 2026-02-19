@@ -55,7 +55,7 @@
 2) Add Node → `Get Variable`
     - From 2020.2 to 2021.1 this node has a Text Field where you can type the same variable name.
     - While 2021.2 onwards, it now has a Dropdown Field where you can select variables (previously registered using the `Register Variable` node)
-    - Variable names aren't case sensitive. "Example" would stil link to "EXAMPLE" or "eXaMpLe" etc.
+    - Variable names aren't case sensitive. "Example" would still link to "EXAMPLE" or "eXaMpLe" etc.
     - When the variable name matches, the input port value (e.g. (0,0,0,0)) should disappear and the preview will change
     - A connection/edge may blink temporarily, but then is hidden to keep the graph clean (kinda the whole point of the tool)
     - Can now use the output of that node as you would usually
