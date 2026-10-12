@@ -294,7 +294,11 @@ namespace Cyan {
 			if (addNodeMethod == null)
 				addNodeMethod = graphDataType.GetMethod("AddNode", bindingFlags);
 
-			addNodeMethod.Invoke(graphData, new object[] { nodeToAdd });
+			var parameters = addNodeMethod.GetParameters().Length == 2 ? 
+				new object[] { nodeToAdd, true }	// Unity 6.6
+				: new object[] { nodeToAdd };		// prior versions
+
+			addNodeMethod.Invoke(graphData, parameters);
 
 			if (debugMessages) Debug.Log("Added Node of Type " + type.ToString());
 		}
@@ -528,7 +532,11 @@ namespace Cyan {
 			if (addNodeMethod == null)
 				addNodeMethod = graphDataType.GetMethod("AddNode", bindingFlags);
 
-			addNodeMethod.Invoke(graphData, new object[] { nodeToAdd });
+			var parameters = addNodeMethod.GetParameters().Length == 2 ? 
+				new object[] { nodeToAdd, true }	// Unity 6.6
+				: new object[] { nodeToAdd };		// prior versions
+
+			addNodeMethod.Invoke(graphData, parameters);
 		}
 
 		private static string GetGroupGuid(Scope scope) {
